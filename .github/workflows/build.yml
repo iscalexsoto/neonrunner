@@ -1,5 +1,10 @@
 name: Build
 
+# En cada push a main se corren las pruebas y se compila el APK firmado.
+# Si no existe aún una release para la versión declarada en app/build.gradle.kts
+# (versionName), se crea con su etiqueta vX.Y.Z y el APK adjunto.
+# Subir una etiqueta vX.Y.Z a mano también publica (o actualiza) esa release.
+
 on:
   push:
     branches: [main]
@@ -17,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -31,26 +36,38 @@ jobs:
       - name: Build release APK
         run: ./gradlew --no-daemon assembleRelease
 
-      - name: Rename APK
-        id: apk
+      - name: Determine version
+        id: version
         run: |
-          VERSION="${GITHUB_REF_NAME}"
-          case "$GITHUB_REF" in refs/tags/*) ;; *) VERSION="${GITHUB_SHA::7}";; esac
-          OUT="NeonRunner-${VERSION}.apk"
+          case "$GITHUB_REF" in
+            refs/tags/*) TAG="$GITHUB_REF_NAME" ;;
+            *) TAG="v$(sed -nE 's/^\s*versionName\s*=\s*"([^"]+)".*/\1/p' app/build.gradle.kts)" ;;
+          esac
+          OUT="NeonRunner-${TAG}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$OUT"
-          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "apk=$OUT" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.apk.outputs.path }}
-          path: ${{ steps.apk.outputs.path }}
+          name: ${{ steps.version.outputs.apk }}
+          path: ${{ steps.version.outputs.apk }}
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          APK: ${{ steps.version.outputs.apk }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "${{ steps.apk.outputs.path }}" \
-            --title "Neon Runner $GITHUB_REF_NAME" \
-            --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "La release $TAG ya existe: se actualiza el APK."
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            echo "Creando la release $TAG."
+            gh release create "$TAG" "$APK" \
+              --target "$GITHUB_SHA" \
+              --title "Neon Runner $TAG" \
+              --generate-notes
+          fi
