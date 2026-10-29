@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Plain dark theme without an app bar; the game draws everything itself. -->
+    <style name="Theme.NeonRunner" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#07030F</item>
+        <item name="android:statusBarColor">#07030F</item>
+        <item name="android:navigationBarColor">#07030F</item>
+    </style>
+</resources>

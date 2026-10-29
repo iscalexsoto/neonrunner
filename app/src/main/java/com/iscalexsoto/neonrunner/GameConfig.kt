@@ -1,0 +1,160 @@
+package com.iscalexsoto.neonrunner
+
+/**
+ * TODOS los valores ajustables del juego viven aquí.
+ *
+ * Unidades:
+ *  - Distancias en "anchos de pantalla" (W). 1.0 = el ancho completo del teléfono,
+ *    así el juego se ve igual en cualquier dispositivo.
+ *  - Tiempo en segundos. Velocidades en W/s, aceleraciones en W/s².
+ *  - Las únicas fracciones de ALTURA (H) son las que dicen "fracción de la altura".
+ *
+ * Los colores están en [Palettes.kt].
+ */
+object GameConfig {
+
+    /** Posición de los elementos en pantalla. */
+    object Layout {
+        /** Altura del suelo/horizonte como fracción de la altura de la pantalla. */
+        const val GROUND_Y = 0.70f
+        /** Posición horizontal fija de la pelota (W). */
+        const val BALL_X = 0.24f
+        /** Radio de la pelota (W). */
+        const val BALL_RADIUS = 0.045f
+    }
+
+    /** Física del salto. */
+    object Physics {
+        /** Gravedad normal (W/s²). */
+        const val GRAVITY = 3.7f
+        /** Gravedad reducida mientras se mantiene presionado y la pelota sube (salto alto). */
+        const val GRAVITY_HOLD = 1.4f
+        /** Tiempo máximo que la gravedad reducida está activa (s). */
+        const val HOLD_MAX = 0.30f
+        /** Velocidad vertical inicial del salto (W/s). Un toque rápido da un salto de ~0.10 W. */
+        const val JUMP_VELOCITY = 0.9f
+        /** Velocidad máxima de caída (W/s). */
+        const val MAX_FALL_SPEED = 3.5f
+        /** Si tocas justo antes de aterrizar (a esta altura o menos), el salto se encola. */
+        const val JUMP_BUFFER_HEIGHT = 0.03f
+        /** Tolerancia de colisión: la hitbox de la pelota es este porcentaje del dibujo. */
+        const val HITBOX_BALL = 0.85f
+        /** Tolerancia de colisión: la hitbox del triángulo es este porcentaje del dibujo. */
+        const val HITBOX_TRIANGLE = 0.88f
+    }
+
+    /** Velocidad de avance. */
+    object Speed {
+        const val START = 0.50f
+        const val MAX = 1.40f
+        /** W/s que se ganan por cada punto. Con 0.00036 el máximo se alcanza a ~2500 puntos. */
+        const val PER_POINT = 0.00036f
+    }
+
+    /** Generación de triángulos. */
+    object Obstacles {
+        const val MIN_HEIGHT = 0.08f
+        const val MAX_HEIGHT = 0.18f
+        /** Altura máxima de cada triángulo cuando salen en grupos de 2 / 3. */
+        const val GROUP2_MAX_HEIGHT = 0.12f
+        const val GROUP3_MAX_HEIGHT = 0.09f
+        /** Los grupos solo aparecen cuando la velocidad ya alcanza para librarlos de un salto. */
+        const val GROUP2_MIN_SPEED = 0.62f
+        const val GROUP3_MIN_SPEED = 0.80f
+        /** base = altura * BASE_RATIO, con una variación aleatoria de ±BASE_JITTER. */
+        const val BASE_RATIO = 1.1f
+        const val BASE_JITTER = 0.15f
+        /** Separación dentro de un grupo, como fracción de la base (menor que 1 = se tocan). */
+        const val GROUP_SPACING = 0.95f
+        /** Probabilidad de grupos de 1, 2 y 3 triángulos (deben sumar 1). */
+        val GROUP_WEIGHTS = floatArrayOf(0.60f, 0.25f, 0.15f)
+        /** Duración del salto más largo posible (s). Se usa para calcular el hueco mínimo. */
+        const val MAX_AIR_TIME = 0.80f
+        /** El hueco mínimo es velocidad * (MAX_AIR_TIME * GAP_SAFETY + GAP_REACTION). */
+        const val GAP_SAFETY = 1.15f
+        const val GAP_REACTION = 0.30f
+        /** Hueco extra aleatorio: hasta velocidad * GAP_RANDOM_MAX segundos. */
+        const val GAP_RANDOM_MAX = 0.90f
+        /** Distancia (W) a la que aparece el primer triángulo al empezar. */
+        const val FIRST_OBSTACLE_DISTANCE = 1.6f
+        /** Los obstáculos se crean cuando entran a esta distancia (W) del borde izquierdo. */
+        const val SPAWN_X = 1.4f
+    }
+
+    /** Puntuación. */
+    object Scoring {
+        /** Puntos por cada ancho de pantalla recorrido. */
+        const val POINTS_PER_W = 18f
+        /** Suena un "ding" y parpadea el marcador cada tantos puntos. */
+        const val DING_EVERY = 100
+        const val HUD_FLASH_DURATION = 0.7f
+        const val HUD_BLINK_INTERVAL = 0.12f
+    }
+
+    /** Ciclo día / noche (interpolación de paleta). */
+    object Cycle {
+        /** Cada tantos puntos se alterna entre la paleta noche y la paleta día. */
+        const val PERIOD_POINTS = 400
+        /** Duración de la transición entre paletas (s). */
+        const val TRANSITION_SECONDS = 2.5f
+        /** true = el juego empieza de noche. */
+        const val START_AT_NIGHT = true
+    }
+
+    /** Flujo de partida. */
+    object Flow {
+        /** Tiempo tras chocar en el que se ignoran toques (evita reinicios accidentales). */
+        const val RESTART_DELAY = 0.8f
+        /** Duración de la sacudida de pantalla y el destello al chocar. */
+        const val SHAKE_DURATION = 0.35f
+        const val FLASH_DURATION = 0.25f
+    }
+
+    /** Parámetros visuales. */
+    object Visual {
+        const val STAR_COUNT = 80
+        const val STAR_PARALLAX = 0.02f
+        /** Sol: centro horizontal (W), elevación del centro sobre el horizonte (W) y radio (W). */
+        const val SUN_X = 0.60f
+        const val SUN_ELEVATION = 0.27f
+        const val SUN_RADIUS = 0.19f
+        const val SUN_STRIPES = 6
+
+        const val FAR_MOUNTAIN_PARALLAX = 0.08f
+        const val FAR_MOUNTAIN_SEGMENT = 0.16f
+        const val FAR_MOUNTAIN_MIN = 0.10f
+        const val FAR_MOUNTAIN_MAX = 0.30f
+
+        const val NEAR_MOUNTAIN_PARALLAX = 0.22f
+        const val NEAR_MOUNTAIN_SEGMENT = 0.24f
+        const val NEAR_MOUNTAIN_MIN = 0.03f
+        const val NEAR_MOUNTAIN_MAX = 0.17f
+
+        /** Cuadrícula del suelo. */
+        const val GRID_PARALLAX = 1.0f
+        const val GRID_SPACING = 0.16f
+        /** Cuánto se abren las líneas verticales hacia el borde inferior (1 = sin perspectiva). */
+        const val GRID_SPREAD = 2.4f
+        const val GRID_ROWS = 9
+        /** Velocidad a la que las líneas horizontales "vienen" hacia el jugador (0 = fijas). */
+        const val GRID_ROW_DRIFT = 0.12f
+
+        /** Grosor base de las líneas neón (W). */
+        const val LINE_WIDTH = 0.006f
+
+        /** Squash & stretch de la pelota. */
+        const val SQUASH_ON_LAND = 0.35f
+        const val STRETCH_ON_JUMP = 0.22f
+        const val STRETCH_PER_VELOCITY = 0.12f
+        const val STRETCH_MAX = 0.30f
+        const val SQUASH_SPRING = 160f
+        const val SQUASH_DAMPING = 16f
+    }
+
+    /** Sonido (generado por código, ver SoundManager). */
+    object Audio {
+        const val SAMPLE_RATE = 22050
+        const val VOLUME = 0.8f
+        const val CRASH_VIBRATION_MS = 80L
+    }
+}
