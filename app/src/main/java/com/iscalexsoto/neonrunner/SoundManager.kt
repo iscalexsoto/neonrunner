@@ -27,6 +27,10 @@ class SoundManager(context: Context) {
         )
         .build()
 
+    // Debe declararse ANTES del bloque init: los inicializadores corren en orden textual
+    // y la síntesis lo usa.
+    private val rate = GameConfig.Audio.SAMPLE_RATE
+
     private val loaded = HashSet<Int>()
     private val jumpId: Int
     private val crashId: Int
@@ -51,8 +55,6 @@ class SoundManager(context: Context) {
     }
 
     // ------------------------------------------------------------ síntesis
-
-    private val rate = GameConfig.Audio.SAMPLE_RATE
 
     /** Salto: barrido ascendente con onda cuadrada suave, muy corto. */
     private fun synthJump(): FloatArray {
