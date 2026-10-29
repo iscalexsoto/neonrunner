@@ -142,6 +142,11 @@ object GameConfig {
         /** Grosor base de las líneas neón (W). */
         const val LINE_WIDTH = 0.006f
 
+        /** Textos de inicio / game over: altura de la línea base del título sobre el horizonte (W)
+         *  y ancho máximo de cualquier renglón (fracción de W); si no cabe, se reduce la letra. */
+        const val MESSAGE_TITLE_ELEVATION = 0.82f
+        const val MESSAGE_MAX_WIDTH = 0.84f
+
         /** Squash & stretch de la pelota. */
         const val SQUASH_ON_LAND = 0.35f
         const val STRETCH_ON_JUMP = 0.22f

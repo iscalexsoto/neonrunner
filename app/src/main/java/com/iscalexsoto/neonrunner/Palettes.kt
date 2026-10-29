@@ -23,9 +23,17 @@ data class Palette(
     val floorBottom: Color,
     val ball: Color,
     val ballCore: Color,
+    /** Color del halo de la pelota (puede diferir del cuerpo para contrastar con el cielo). */
+    val ballGlow: Color,
+    /** Intensidad del halo de la pelota (1 = normal). */
+    val ballGlowStrength: Float,
     val enemy: Color,
+    /** Relleno oscuro de los triángulos para que no se pierdan contra el cielo. */
+    val enemyFill: Color,
     val hud: Color,
     val hudGlow: Color,
+    /** Sombra oscura detrás de todos los textos y del contorno de los triángulos. */
+    val shadow: Color,
 )
 
 object Palettes {
@@ -46,9 +54,13 @@ object Palettes {
         floorBottom = Color(0xFF040110),
         ball = Color(0xFF00F0FF),
         ballCore = Color(0xFFFFFFFF),
+        ballGlow = Color(0xFF00F0FF),
+        ballGlowStrength = 1f,
         enemy = Color(0xFFFF2BD6),
+        enemyFill = Color(0xFF12042A),
         hud = Color(0xFFE6FBFF),
         hudGlow = Color(0xFF00E5FF),
+        shadow = Color(0xD9000000),
     )
 
     /** Día / atardecer: cielo morado-rosado más claro, neones cálidos. */
@@ -66,11 +78,17 @@ object Palettes {
         grid = Color(0xFFFF7AC6),
         floorTop = Color(0xFF3A1458),
         floorBottom = Color(0xFF140626),
-        ball = Color(0xFF9BFFEA),
-        ballCore = Color(0xFFFFFFFF),
-        enemy = Color(0xFFFF2E63),
+        // Cian saturado con halo azul más fuerte: la pelota debe seguir siendo lo más llamativo
+        // aun contra el cielo rosa.
+        ball = Color(0xFF00D8FF),
+        ballCore = Color(0xFFEAFFFF),
+        ballGlow = Color(0xFF00A6FF),
+        ballGlowStrength = 1.7f,
+        enemy = Color(0xFFFF1F5A),
+        enemyFill = Color(0xFF2A0F4F),
         hud = Color(0xFFFFF8E7),
         hudGlow = Color(0xFFFFB347),
+        shadow = Color(0xE61A0530),
     )
 
     /** Interpola todos los colores de la paleta. t = 0 → a, t = 1 → b. */
@@ -92,9 +110,13 @@ object Palettes {
             floorBottom = lerp(a.floorBottom, b.floorBottom, k),
             ball = lerp(a.ball, b.ball, k),
             ballCore = lerp(a.ballCore, b.ballCore, k),
+            ballGlow = lerp(a.ballGlow, b.ballGlow, k),
+            ballGlowStrength = a.ballGlowStrength + (b.ballGlowStrength - a.ballGlowStrength) * k,
             enemy = lerp(a.enemy, b.enemy, k),
+            enemyFill = lerp(a.enemyFill, b.enemyFill, k),
             hud = lerp(a.hud, b.hud, k),
             hudGlow = lerp(a.hudGlow, b.hudGlow, k),
+            shadow = lerp(a.shadow, b.shadow, k),
         )
     }
 }

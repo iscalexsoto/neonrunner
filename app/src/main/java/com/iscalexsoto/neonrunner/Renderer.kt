@@ -247,10 +247,13 @@ class Renderer {
             path.lineTo(px(cxW), apex)
             path.lineTo(right, ground)
             path.close()
+            // Relleno oscuro y borde de sombra: el triángulo se recorta contra el cielo claro.
+            drawPath(path, palette.enemyFill)
             drawPath(
                 path,
                 Brush.verticalGradient(0f to palette.enemy.copy(alpha = 0.05f), 1f to palette.enemy.copy(alpha = 0.35f), startY = apex, endY = ground),
             )
+            drawPath(path, palette.shadow, style = Stroke(lineWidth * 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
             glowPath(path, palette.enemy, intensity = 1.2f)
         }
     }
@@ -283,10 +286,11 @@ class Renderer {
             scale(sx, sy, pivot = Offset.Zero)
         }) {
             val c = Offset(0f, -r)
-            // Halo
-            drawCircle(palette.ball, radius = r * 2.0f, center = c, alpha = 0.08f)
-            drawCircle(palette.ball, radius = r * 1.55f, center = c, alpha = 0.14f)
-            drawCircle(palette.ball, radius = r * 1.22f, center = c, alpha = 0.25f)
+            // Halo (color e intensidad vienen de la paleta)
+            val g = palette.ballGlowStrength
+            drawCircle(palette.ballGlow, radius = r * 2.2f, center = c, alpha = (0.08f * g).coerceAtMost(1f))
+            drawCircle(palette.ballGlow, radius = r * 1.6f, center = c, alpha = (0.14f * g).coerceAtMost(1f))
+            drawCircle(palette.ballGlow, radius = r * 1.25f, center = c, alpha = (0.25f * g).coerceAtMost(1f))
             // Cuerpo: núcleo claro que se funde al color neón en el borde
             drawCircle(
                 Brush.radialGradient(
@@ -310,57 +314,86 @@ class Renderer {
 
     // ------------------------------------------------------------------ texto
 
+    /**
+     * Texto neón legible sobre cualquier fondo: primero una copia oscura con sombra difusa
+     * (recorta el texto contra el cielo claro) y encima el texto brillante con su glow.
+     * Si [maxWidth] > 0 y el texto no cabe, se reduce el tamaño de letra.
+     */
+    private fun neonText(
+        canvas: android.graphics.Canvas,
+        text: String,
+        x: Float,
+        y: Float,
+        size: Float,
+        color: Color,
+        glow: Color,
+        shadow: Color,
+        align: android.graphics.Paint.Align,
+        alpha: Int = 255,
+        maxWidth: Float = 0f,
+    ) {
+        textPaint.textAlign = align
+        textPaint.textSize = size
+        if (maxWidth > 0f) {
+            val measured = textPaint.measureText(text)
+            if (measured > maxWidth) textPaint.textSize = size * maxWidth / measured
+        }
+        val fontSize = textPaint.textSize
+        // Pasada 1: sombra oscura
+        textPaint.color = shadow.toArgb()
+        textPaint.alpha = (shadow.alpha * alpha).toInt()
+        textPaint.setShadowLayer(fontSize * 0.45f, 0f, fontSize * 0.04f, shadow.toArgb())
+        canvas.drawText(text, x, y, textPaint)
+        // Pasada 2: texto brillante con glow
+        textPaint.color = color.toArgb()
+        textPaint.alpha = alpha
+        textPaint.setShadowLayer(fontSize * 0.3f, 0f, 0f, glow.toArgb())
+        canvas.drawText(text, x, y, textPaint)
+        textPaint.alpha = 255
+    }
+
     private fun DrawScope.drawHud(palette: Palette, engine: GameEngine) {
         val size = w * 0.046f
         val margin = w * 0.05f
         val top = h * 0.055f + size
-        textPaint.textSize = size
-        textPaint.textAlign = android.graphics.Paint.Align.RIGHT
-        textPaint.color = palette.hud.toArgb()
-        textPaint.setShadowLayer(size * 0.35f, 0f, 0f, palette.hudGlow.toArgb())
-
         val canvas = drawContext.canvas.nativeCanvas
+        val right = android.graphics.Paint.Align.RIGHT
         val scoreText = engine.score.toString().padStart(5, '0')
         val hiText = "HI " + engine.highScore.toString().padStart(5, '0')
 
         // Parpadeo del marcador al cruzar cada 100 puntos (estilo Chrome).
         val flashing = engine.hudFlashTime >= 0f
         val visible = !flashing || ((engine.hudFlashTime / Scoring.HUD_BLINK_INTERVAL).toInt() % 2 == 0)
-        if (visible) canvas.drawText(scoreText, w - margin, top, textPaint)
+        if (visible) neonText(canvas, scoreText, w - margin, top, size, palette.hud, palette.hudGlow, palette.shadow, right)
 
-        textPaint.alpha = 170
+        textPaint.textSize = size
         val scoreWidth = textPaint.measureText("00000")
-        canvas.drawText(hiText, w - margin - scoreWidth - size * 1.2f, top, textPaint)
-        textPaint.alpha = 255
+        neonText(canvas, hiText, w - margin - scoreWidth - size * 1.2f, top, size, palette.hud, palette.hudGlow, palette.shadow, right, alpha = 190)
     }
 
     private fun DrawScope.drawMessages(palette: Palette, engine: GameEngine) {
+        if (engine.phase == GameEngine.Phase.PLAYING) return
         val canvas = drawContext.canvas.nativeCanvas
-        textPaint.textAlign = android.graphics.Paint.Align.CENTER
-        textPaint.color = palette.hud.toArgb()
+        val center = android.graphics.Paint.Align.CENTER
         val cx = w / 2f
-        val cy = ground - w * 0.62f
+        val maxWidth = w * Visual.MESSAGE_MAX_WIDTH
+        // El bloque va en la zona de estrellas, por encima del sol y su resplandor,
+        // pero nunca encimado con el marcador en pantallas cortas.
+        val hudBottom = h * 0.055f + w * 0.046f
+        val cy = maxOf(ground - w * Visual.MESSAGE_TITLE_ELEVATION, hudBottom + w * 0.2f)
 
-        fun title(text: String, y: Float, glow: Color) {
-            textPaint.textSize = w * 0.11f
-            textPaint.setShadowLayer(w * 0.03f, 0f, 0f, glow.toArgb())
-            canvas.drawText(text, cx, y, textPaint)
-        }
+        fun title(text: String, y: Float, glow: Color) =
+            neonText(canvas, text, cx, y, w * 0.11f, palette.hud, glow, palette.shadow, center, maxWidth = maxWidth)
 
-        fun subtitle(text: String, y: Float, alpha: Int = 230) {
-            textPaint.textSize = w * 0.042f
-            textPaint.alpha = alpha
-            textPaint.setShadowLayer(w * 0.012f, 0f, 0f, palette.hudGlow.toArgb())
-            canvas.drawText(text, cx, y, textPaint)
-            textPaint.alpha = 255
-        }
+        fun subtitle(text: String, y: Float, alpha: Int = 230) =
+            neonText(canvas, text, cx, y, w * 0.042f, palette.hud, palette.hudGlow, palette.shadow, center, alpha, maxWidth)
 
         val pulse = (160 + 95 * (0.5f + 0.5f * sin(engine.time * 4f))).toInt()
         when (engine.phase) {
             GameEngine.Phase.READY -> {
                 title("NEON RUNNER", cy, palette.enemy)
                 subtitle("TOCA PARA SALTAR", cy + w * 0.11f, pulse)
-                subtitle("MANTÉN PRESIONADO PARA SALTAR MÁS ALTO", cy + w * 0.18f, 150)
+                subtitle("MANTÉN PARA SALTAR MÁS ALTO", cy + w * 0.18f, 170)
             }
             GameEngine.Phase.DEAD -> {
                 title("GAME OVER", cy, palette.enemy)
