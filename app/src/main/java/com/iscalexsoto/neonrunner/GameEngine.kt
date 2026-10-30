@@ -58,6 +58,17 @@ class GameEngine(
     }
 
     /**
+     * Volador del modo Runner: caja que flota a una de las alturas de [Obstacles.FLYER_HEIGHTS]
+     * y avanza hacia la pelota algo más rápido que el suelo. No se puede destruir.
+     * [heightIndex] identifica la altura (0 = suelo ... 3 = muy alto).
+     */
+    class Flyer(var x: Float, val size: Float, val bottom: Float, val heightIndex: Int, val flapPhase: Float) {
+        val top get() = bottom + size
+        val left get() = x - size / 2f
+        val right get() = x + size / 2f
+    }
+
+    /**
      * Enemigo destructible (solo modo ROGUE): cuadrado apoyado en el suelo o rombo volador.
      * [x] es el centro horizontal (mundo); [bottom] la altura de su borde inferior sobre el suelo.
      * [tier] es el escalón de vida (cada 1000 puntos): cambia el color y añade contornos.
@@ -126,6 +137,8 @@ class GameEngine(
     var hudFlashTime = -1f; private set
 
     val obstacles = ArrayList<Obstacle>()
+    /** Voladores del modo Runner. */
+    val flyers = ArrayList<Flyer>()
 
     // ---- estado Rogue-lite
     val enemies = ArrayList<Enemy>()
@@ -260,6 +273,7 @@ class GameEngine(
             }
         }
 
+        for (f in flyers) f.x -= Obstacles.FLYER_EXTRA_SPEED * dt
         spawnObstacles()
         cullObstacles()
 
@@ -337,6 +351,7 @@ class GameEngine(
 
     private fun resetWorld() {
         obstacles.clear()
+        flyers.clear()
         enemies.clear()
         bullets.clear()
         gems.clear()
@@ -376,15 +391,24 @@ class GameEngine(
 
     private fun spawnObstacles() {
         while (nextSpawnX < distance + Obstacles.SPAWN_X) {
-            val roll = if (mode == GameMode.ROGUE) rng.nextFloat() else 1f
-            val groupEnd = when {
-                roll < Rogue.FLYER_CHANCE && speed >= Rogue.FLYER_MIN_SPEED -> spawnFlyer(nextSpawnX)
-                roll < Rogue.FLYER_CHANCE + Rogue.SQUARE_CHANCE -> spawnSquare(nextSpawnX)
-                else -> spawnTriangleGroup(nextSpawnX)
+            val roll = rng.nextFloat()
+            val groupEnd = if (mode == GameMode.ROGUE) {
+                when {
+                    roll < Rogue.FLYER_CHANCE && speed >= Rogue.FLYER_MIN_SPEED -> spawnFlyer(nextSpawnX)
+                    roll < Rogue.FLYER_CHANCE + Rogue.SQUARE_CHANCE -> spawnSquare(nextSpawnX)
+                    else -> spawnTriangleGroup(nextSpawnX)
+                }
+            } else {
+                if (roll < Obstacles.FLYER_CHANCE && speed >= Obstacles.FLYER_MIN_SPEED) spawnRunnerFlyer(nextSpawnX)
+                else spawnTriangleGroup(nextSpawnX)
             }
-            // El hueco crece con la velocidad para que siempre se pueda saltar.
-            val minGap = speed * (Obstacles.MAX_AIR_TIME * Obstacles.GAP_SAFETY + Obstacles.GAP_REACTION)
-            val extra = rng.nextFloat() * speed * Obstacles.GAP_RANDOM_MAX
+            // El hueco crece con la velocidad para que siempre se pueda saltar. Runner es más denso.
+            val rogue = mode == GameMode.ROGUE
+            val safety = if (rogue) Obstacles.GAP_SAFETY else Obstacles.RUNNER_GAP_SAFETY
+            val reaction = if (rogue) Obstacles.GAP_REACTION else Obstacles.RUNNER_GAP_REACTION
+            val randomMax = if (rogue) Obstacles.GAP_RANDOM_MAX else Obstacles.RUNNER_GAP_RANDOM_MAX
+            val minGap = speed * (Obstacles.MAX_AIR_TIME * safety + reaction)
+            val extra = rng.nextFloat() * speed * randomMax
             nextSpawnX = groupEnd + minGap + extra
         }
     }
@@ -408,6 +432,28 @@ class GameEngine(
             x += b * Obstacles.GROUP_SPACING
         }
         return groupEnd
+    }
+
+    /**
+     * Volador de Runner a partir de [start]. Como avanza hacia la pelota más rápido que el suelo,
+     * se coloca un poco más adelante para que el hueco con el obstáculo anterior se conserve.
+     */
+    private fun spawnRunnerFlyer(start: Float): Float {
+        val lead = Obstacles.FLYER_EXTRA_SPEED * (Obstacles.SPAWN_X / speed)
+        val size = Obstacles.FLYER_SIZE
+        val index = pickWeighted(Obstacles.FLYER_HEIGHT_WEIGHTS)
+        flyers.add(Flyer(start + lead + size / 2f, size, Obstacles.FLYER_HEIGHTS[index], index, rng.nextFloat() * 6.2832f))
+        return start + lead + size
+    }
+
+    private fun pickWeighted(weights: FloatArray): Int {
+        val r = rng.nextFloat()
+        var acc = 0f
+        for (i in weights.indices) {
+            acc += weights[i]
+            if (r < acc) return i
+        }
+        return weights.size - 1
     }
 
     /** Escalón de vida actual: sube cada 1000 puntos. */
@@ -456,6 +502,7 @@ class GameEngine(
     private fun cullObstacles() {
         val limit = distance - 0.3f
         obstacles.removeAll { it.right < limit }
+        flyers.removeAll { it.right < limit }
         enemies.removeAll { it.right < limit }
     }
 
@@ -614,6 +661,13 @@ class GameEngine(
             val b = o.base * Physics.HITBOX_TRIANGLE
             val h = o.height * Physics.HITBOX_TRIANGLE
             if (circleHitsTriangle(cx, cy, r, tx - b / 2f, 0f, tx + b / 2f, 0f, tx, h)) return true
+        }
+        for (f in flyers) {
+            val fx = f.x - distance
+            if (abs(fx - cx) > f.size + Layout.BALL_RADIUS) continue
+            val half = f.size * Rogue.HITBOX_SQUARE / 2f
+            val midY = f.bottom + f.size / 2f
+            if (circleHitsRect(cx, cy, r, fx - half, midY - half, fx + half, midY + half)) return true
         }
         for (s in enemies) {
             val sx = s.x - distance

@@ -46,7 +46,9 @@ class GameEngineTest {
 
     private fun hazards(e: GameEngine): List<Hazard> =
         e.obstacles.map { Hazard(it.left, it.right, it.height, false) } +
-            e.enemies.filter { !it.flying }.map { Hazard(it.left, it.right, it.size, true) }
+            e.enemies.filter { !it.flying }.map { Hazard(it.left, it.right, it.size, true) } +
+            // Los voladores del Runner solo se saltan cuando van a ras de suelo; los demás se pasan por debajo.
+            e.flyers.filter { it.heightIndex == 0 }.map { Hazard(it.left, it.right, it.size, true) }
 
     private fun running(e: GameEngine) = e.phase == GameEngine.Phase.PLAYING || e.phase == GameEngine.Phase.LEVEL_UP
 
@@ -136,6 +138,43 @@ class GameEngineTest {
             minScore = minOf(minScore, e.score)
         }
         assertTrue(minScore > 2000, "alguna partida terminó demasiado pronto: $minScore")
+    }
+
+    @Test
+    fun losVoladoresDelRunnerSalenALasCuatroAlturasYSeEsquivanComoSeAnuncia() {
+        // Geometría de las cuatro alturas respecto a la pelota (hitboxes incluidas).
+        val r = GameConfig.Layout.BALL_RADIUS * GameConfig.Physics.HITBOX_BALL
+        val half = GameConfig.Obstacles.FLYER_SIZE * GameConfig.Rogue.HITBOX_SQUARE / 2f
+        fun hits(flyerBottom: Float, ballY: Float): Boolean {
+            val mid = flyerBottom + GameConfig.Obstacles.FLYER_SIZE / 2f
+            return GameEngine.circleHitsRect(0f, ballY + GameConfig.Layout.BALL_RADIUS, r, -half, mid - half, half, mid + half)
+        }
+        val h = GameConfig.Obstacles.FLYER_HEIGHTS
+        val shortApex = 0.106f
+        val longApex = 0.234f
+        // Suelo: choca en el suelo, se libra en el punto alto de cualquier salto.
+        assertTrue(hits(h[0], 0f) && !hits(h[0], shortApex))
+        // Salto corto: pasa por debajo, choca en el salto corto, se libra con el largo.
+        assertTrue(!hits(h[1], 0f) && hits(h[1], shortApex) && !hits(h[1], longApex))
+        // Salto largo: pasa por debajo y con el corto, choca con el largo.
+        assertTrue(!hits(h[2], 0f) && !hits(h[2], shortApex) && hits(h[2], longApex))
+        // Muy alto: solo choca en lo más alto del salto largo.
+        assertTrue(!hits(h[3], 0f) && !hits(h[3], shortApex) && hits(h[3], longApex))
+
+        // En partida aparecen todas las alturas y el bot (que salta solo los de suelo) sobrevive.
+        val seen = IntArray(h.size)
+        for (seed in 1..20) {
+            val e = newEngine(seed)
+            select(e, GameMode.RUNNER)
+            var steps = 0
+            while (running(e) && steps < 60 * 240) {
+                runBot(e, maxSeconds = 1)
+                for (f in e.flyers) if (f.x - e.distance < 1.2f) seen[f.heightIndex] = 1
+                steps += 60
+            }
+            assertEquals(GameEngine.Phase.PLAYING, e.phase, "el bot murió en Runner con voladores (seed $seed, score ${e.score})")
+        }
+        assertTrue(seen.all { it == 1 }, "no salieron todas las alturas: ${seen.toList()}")
     }
 
     @Test

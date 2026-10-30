@@ -70,11 +70,34 @@ object GameConfig {
         val GROUP_WEIGHTS = floatArrayOf(0.60f, 0.25f, 0.15f)
         /** Duración del salto más largo posible (s). Se usa para calcular el hueco mínimo. */
         const val MAX_AIR_TIME = 0.80f
-        /** El hueco mínimo es velocidad * (MAX_AIR_TIME * GAP_SAFETY + GAP_REACTION). */
+        /** El hueco mínimo es velocidad * (MAX_AIR_TIME * GAP_SAFETY + GAP_REACTION).
+         *  Estos valores los usa el modo Rogue; Runner es más denso (RUNNER_*). */
         const val GAP_SAFETY = 1.15f
         const val GAP_REACTION = 0.30f
         /** Hueco extra aleatorio: hasta velocidad * GAP_RANDOM_MAX segundos. */
         const val GAP_RANDOM_MAX = 0.90f
+        /** Huecos del modo Runner: más obstáculos por minuto. */
+        const val RUNNER_GAP_SAFETY = 1.05f
+        const val RUNNER_GAP_REACTION = 0.22f
+        const val RUNNER_GAP_RANDOM_MAX = 0.45f
+
+        /**
+         * Voladores del modo Runner (no se pueden destruir). Salen a cuatro alturas, medidas en el
+         * borde inferior sobre el suelo (W). La pelota en el suelo ocupa 0..0.09; el salto corto
+         * la lleva a 0.11..0.20 y el salto largo a 0.23..0.32:
+         *  - 0.00 SUELO: hay que saltarlo.
+         *  - 0.11 SALTO CORTO: pasa por debajo o líbralo con salto largo; el toque corto choca.
+         *  - 0.20 SALTO LARGO: pasa por debajo o con toque corto; el salto largo choca.
+         *  - 0.30 MUY ALTO: solo por debajo; un salto largo completo choca en su punto más alto.
+         */
+        val FLYER_HEIGHTS = floatArrayOf(0.00f, 0.11f, 0.20f, 0.30f)
+        val FLYER_HEIGHT_WEIGHTS = floatArrayOf(0.20f, 0.30f, 0.30f, 0.20f)
+        const val FLYER_CHANCE = 0.30f
+        const val FLYER_MIN_SPEED = 0.60f
+        const val FLYER_SIZE = 0.08f
+        /** Los voladores vienen hacia ti un poco más rápido que el suelo (W/s extra). */
+        const val FLYER_EXTRA_SPEED = 0.10f
+        const val FLYER_FLAP_SPEED = 11f
         /** Distancia (W) a la que aparece el primer triángulo al empezar. */
         const val FIRST_OBSTACLE_DISTANCE = 1.6f
         /** Los obstáculos se crean cuando entran a esta distancia (W) del borde izquierdo. */

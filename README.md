@@ -12,7 +12,10 @@ Proyecto personal: sin cuentas, sin internet, sin tienda. Lo único que guarda e
 
 Al abrir el juego eliges uno de dos modos tocando su panel:
 
-- **Runner**: el juego original. Solo triángulos; salta y sobrevive.
+- **Runner**: el juego original. Triángulos y, a partir de cierta velocidad, **voladores** a cuatro
+  alturas, como en el dino de Chrome: en el suelo (hay que saltarlo), a la altura del salto corto
+  (pasa por debajo o líbralo con salto largo), a la altura del salto largo (pasa por debajo o con
+  toque corto) y muy alto (solo por debajo). Nada se destruye: salta y sobrevive.
 - **Rogue-lite**: además de triángulos hay **cuadrados con vida**. La pelota dispara sola hacia
   adelante (también en el aire) cuando hay un cuadrado al alcance. Un cuadrado destruido suelta un
   rombo de experiencia que cae y persigue a la pelota por el suelo hasta tocarla (si tardas demasiado
@@ -30,7 +33,7 @@ Al abrir el juego eliges uno de dos modos tocando su panel:
 | --- | --- |
 | Toque rápido | Salto corto |
 | Mantener presionado | Salto más alto |
-| Chocar con un triángulo o cuadrado | Fin de la partida. Tras una pausa breve, un toque reinicia el mismo modo |
+| Chocar con cualquier obstáculo o enemigo | Fin de la partida. Tras una pausa breve, un toque reinicia el mismo modo |
 | Mantener presionado en game over | Vuelve a la selección de modo |
 
 La puntuación (arriba a la derecha, junto con el récord `HI`, uno por modo) es la distancia recorrida;

@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import com.iscalexsoto.neonrunner.GameConfig.Flow
 import com.iscalexsoto.neonrunner.GameConfig.Layout
+import com.iscalexsoto.neonrunner.GameConfig.Obstacles
 import com.iscalexsoto.neonrunner.GameConfig.Rogue
 import com.iscalexsoto.neonrunner.GameConfig.Scoring
 import com.iscalexsoto.neonrunner.GameConfig.Visual
@@ -70,6 +71,7 @@ class Renderer {
                 )
                 drawFloor(palette, engine)
                 drawObstacles(palette, engine)
+                drawRunnerFlyers(palette, engine)
                 if (engine.mode == GameMode.ROGUE) {
                     drawEnemies(palette, engine)
                     drawGems(palette, engine)
@@ -266,6 +268,41 @@ class Renderer {
             )
             drawPath(path, palette.shadow, style = Stroke(lineWidth * 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
             glowPath(path, palette.enemy, intensity = 1.2f)
+        }
+    }
+
+    /** Voladores del Runner: cuerpo en rombo con dos alas que baten, en el color de los triángulos. */
+    private fun DrawScope.drawRunnerFlyers(palette: Palette, engine: GameEngine) {
+        for (f in engine.flyers) {
+            val cxW = f.x - engine.distance
+            if (cxW + f.size < -0.15f || cxW - f.size > 1.15f) continue
+            val cx = px(cxW)
+            val cy = py(f.bottom + f.size / 2f)
+            val half = f.size / 2f * w
+            val flap = sin(engine.time * Obstacles.FLYER_FLAP_SPEED + f.flapPhase)
+            // Cuerpo
+            path.reset()
+            path.moveTo(cx, cy - half * 0.7f)
+            path.lineTo(cx + half, cy)
+            path.lineTo(cx, cy + half * 0.7f)
+            path.lineTo(cx - half, cy)
+            path.close()
+            drawPath(path, palette.enemyFill)
+            drawPath(path, palette.enemy.copy(alpha = 0.25f))
+            drawPath(path, palette.shadow, style = Stroke(lineWidth * 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            glowPath(path, palette.enemy, intensity = 1.2f)
+            // Alas: dos trazos desde el cuerpo hacia afuera y arriba/abajo según el batido
+            val wingY = cy - half * 0.9f * flap
+            fillPath.reset()
+            fillPath.moveTo(cx - half * 0.3f, cy - half * 0.2f)
+            fillPath.lineTo(cx - half * 1.5f, wingY)
+            fillPath.moveTo(cx + half * 0.3f, cy - half * 0.2f)
+            fillPath.lineTo(cx + half * 1.5f, wingY)
+            drawPath(fillPath, palette.shadow, style = Stroke(lineWidth * 2.4f, cap = StrokeCap.Round))
+            glowPath(fillPath, palette.enemy, width = lineWidth * 0.9f)
+            // Sombra en el suelo
+            val shadowK = (1f - f.bottom / 0.4f).coerceIn(0.2f, 1f)
+            drawOval(palette.enemy, topLeft = Offset(cx - half * 0.9f, ground - half * 0.08f), size = Size(half * 1.8f, half * 0.16f), alpha = 0.18f * shadowK)
         }
     }
 
@@ -570,7 +607,7 @@ class Renderer {
         val gap = w * 0.05f
         drawModePanel(
             palette, top = split - gap / 2f - panelH, height = panelH, accent = palette.ball, pulse = pulse,
-            title = "RUNNER", line1 = "Salta los triángulos.", line2 = "Solo tú y tu pulgar.",
+            title = "RUNNER", line1 = "Salta triángulos, esquiva voladores.", line2 = "Solo tú y tu pulgar.",
             hi = engine.highScoreFor(GameMode.RUNNER),
         )
         drawModePanel(
