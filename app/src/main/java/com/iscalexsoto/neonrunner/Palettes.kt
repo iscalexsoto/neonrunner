@@ -34,6 +34,10 @@ data class Palette(
     val hudGlow: Color,
     /** Sombra oscura detrás de todos los textos y del contorno de los triángulos. */
     val shadow: Color,
+    /** Modo Rogue-lite: cuadrados (contorno y relleno), rombos de experiencia. */
+    val square: Color,
+    val squareFill: Color,
+    val gem: Color,
 )
 
 object Palettes {
@@ -61,6 +65,9 @@ object Palettes {
         hud = Color(0xFFE6FBFF),
         hudGlow = Color(0xFF00E5FF),
         shadow = Color(0xD9000000),
+        square = Color(0xFFD4FF3A),
+        squareFill = Color(0xFF0E1A05),
+        gem = Color(0xFFE8FFB0),
     )
 
     /** Día / atardecer: cielo morado-rosado más claro, neones cálidos. */
@@ -89,6 +96,9 @@ object Palettes {
         hud = Color(0xFFFFF8E7),
         hudGlow = Color(0xFFFFB347),
         shadow = Color(0xE61A0530),
+        square = Color(0xFFFFE94A),
+        squareFill = Color(0xFF2E1A3C),
+        gem = Color(0xFFFFF6C2),
     )
 
     /** Interpola todos los colores de la paleta. t = 0 → a, t = 1 → b. */
@@ -117,6 +127,9 @@ object Palettes {
             hud = lerp(a.hud, b.hud, k),
             hudGlow = lerp(a.hudGlow, b.hudGlow, k),
             shadow = lerp(a.shadow, b.shadow, k),
+            square = lerp(a.square, b.square, k),
+            squareFill = lerp(a.squareFill, b.squareFill, k),
+            gem = lerp(a.gem, b.gem, k),
         )
     }
 }

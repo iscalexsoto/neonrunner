@@ -33,7 +33,7 @@ fun GameScreen() {
 
     val engine = remember {
         GameEngine(
-            initialHighScore = store.load(),
+            initialHighScores = store.loadAll(),
             events = object : GameEvents {
                 override fun onJump() = sound.playJump()
                 override fun onCrash() {
@@ -41,7 +41,10 @@ fun GameScreen() {
                     haptics.crash()
                 }
                 override fun onDing() = sound.playDing()
-                override fun onHighScore(score: Int) = store.save(score)
+                override fun onHighScore(mode: GameMode, score: Int) = store.save(mode, score)
+                override fun onShoot() = sound.playShoot()
+                override fun onSquareDestroyed() = sound.playPop()
+                override fun onLevelUp() = sound.playLevelUp()
             },
         )
     }
@@ -84,7 +87,10 @@ fun GameScreen() {
                     while (true) {
                         val event = awaitPointerEvent()
                         val pressed = event.changes.any { it.pressed }
-                        if (pressed && !wasPressed) engine.onPress()
+                        if (pressed && !wasPressed) {
+                            val y = event.changes.first { it.pressed }.position.y
+                            engine.onPress(yFrac = y / size.height)
+                        }
                         if (!pressed && wasPressed) engine.onRelease()
                         wasPressed = pressed
                     }

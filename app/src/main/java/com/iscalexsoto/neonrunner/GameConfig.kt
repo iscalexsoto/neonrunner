@@ -105,6 +105,11 @@ object GameConfig {
     object Flow {
         /** Tiempo tras chocar en el que se ignoran toques (evita reinicios accidentales). */
         const val RESTART_DELAY = 0.8f
+        /** En game over, mantener presionado este tiempo vuelve a la selección de modo. */
+        const val MODE_SWITCH_HOLD = 0.7f
+        /** Pantalla de selección: los toques por encima de esta fracción de la ALTURA eligen
+         *  Runner; por debajo, Rogue-lite. El renderer dibuja los paneles alrededor de esta línea. */
+        const val MODE_SPLIT_Y = 0.37f
         /** Duración de la sacudida de pantalla y el destello al chocar. */
         const val SHAKE_DURATION = 0.35f
         const val FLASH_DURATION = 0.25f
@@ -156,10 +161,54 @@ object GameConfig {
         const val SQUASH_DAMPING = 16f
     }
 
+    /** Modo Rogue-lite: cuadrados con vida, disparo automático y subida de nivel. */
+    object Rogue {
+        /** Probabilidad de que un grupo de obstáculos sea un cuadrado en vez de triángulos. */
+        const val SQUARE_CHANCE = 0.55f
+        /** Cuadrado normal: lado (W), vida y experiencia que suelta. */
+        const val SMALL_SIZE = 0.09f
+        const val SMALL_HP = 2f
+        const val SMALL_XP = 1
+        /** Cuadrado blindado. */
+        const val BIG_SIZE = 0.15f
+        const val BIG_HP = 6f
+        const val BIG_XP = 3
+        /** Probabilidad de blindado (del total de cuadrados) y velocidad mínima para que aparezca. */
+        const val BIG_CHANCE = 0.30f
+        const val BIG_MIN_SPEED = 0.60f
+        /** La vida de los cuadrados sube un escalón cada 1000 puntos: +35 % por escalón. */
+        const val HP_GROWTH_PER_1000 = 0.35f
+        const val HITBOX_SQUARE = 0.88f
+
+        /** Disparo: sale del centro de la pelota hacia adelante, también en el aire. */
+        const val BULLET_SPEED = 1.8f      // W/s respecto a la pantalla
+        const val BULLET_RADIUS = 0.009f
+        /** Estadísticas iniciales. */
+        const val FIRE_RATE_START = 2.5f   // disparos por segundo
+        const val DAMAGE_START = 1.0f
+        const val RANGE_START = 0.55f      // W; solo se dispara si hay un cuadrado a este alcance
+        /** Mejora por nivel (rotan: cadencia, daño, alcance, cadencia...). */
+        const val FIRE_RATE_MULT = 1.20f
+        const val DAMAGE_ADD = 0.5f
+        const val RANGE_ADD = 0.08f
+        /** Experiencia necesaria para el siguiente nivel: BASE + (nivel - 1) * PER_LEVEL. */
+        const val XP_BASE = 4
+        const val XP_PER_LEVEL = 2
+        const val LEVEL_MESSAGE_DURATION = 1.4f
+
+        /** Rombos de experiencia: saltan al morir el cuadrado, caen y se deslizan hacia la pelota. */
+        const val GEM_POP_VY = 0.7f
+        const val GEM_GRAVITY = 2.6f
+        const val GEM_SLIDE_SPEED = 0.9f
+        const val GEM_RADIUS = 0.014f
+    }
+
     /** Sonido (generado por código, ver SoundManager). */
     object Audio {
         const val SAMPLE_RATE = 22050
         const val VOLUME = 0.8f
+        /** El disparo suena muchas veces por segundo: más bajo que el resto. */
+        const val SHOOT_VOLUME = 0.25f
         const val CRASH_VIBRATION_MS = 80L
     }
 }

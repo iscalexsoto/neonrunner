@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import com.iscalexsoto.neonrunner.GameConfig.Flow
 import com.iscalexsoto.neonrunner.GameConfig.Layout
+import com.iscalexsoto.neonrunner.GameConfig.Rogue
 import com.iscalexsoto.neonrunner.GameConfig.Scoring
 import com.iscalexsoto.neonrunner.GameConfig.Visual
 import kotlin.math.abs
@@ -69,11 +70,21 @@ class Renderer {
                 )
                 drawFloor(palette, engine)
                 drawObstacles(palette, engine)
+                if (engine.mode == GameMode.ROGUE) {
+                    drawSquares(palette, engine)
+                    drawGems(palette, engine)
+                    drawBullets(palette, engine)
+                }
                 drawBall(palette, engine)
             }
             drawFlash(engine)
-            drawHud(palette, engine)
-            drawMessages(palette, engine)
+            if (engine.phase == GameEngine.Phase.SELECT) {
+                drawModeSelect(palette, engine)
+            } else {
+                drawHud(palette, engine)
+                if (engine.mode == GameMode.ROGUE) drawXpBar(palette, engine)
+                drawMessages(palette, engine)
+            }
         }
     }
 
@@ -258,6 +269,83 @@ class Renderer {
         }
     }
 
+    // ------------------------------------------------------------------ rogue-lite
+
+    private fun DrawScope.drawSquares(palette: Palette, engine: GameEngine) {
+        for (s in engine.squares) {
+            val cxW = s.x - engine.distance
+            if (cxW + s.size < -0.1f || cxW - s.size > 1.1f) continue
+            val left = px(cxW - s.size / 2f)
+            val right = px(cxW + s.size / 2f)
+            val top = py(s.size)
+            val sizePx = right - left
+            // Relleno oscuro y "vida" como nivel de líquido que baja con cada impacto
+            drawRect(palette.squareFill, topLeft = Offset(left, top), size = Size(sizePx, sizePx))
+            val hpH = sizePx * s.hpFraction
+            drawRect(palette.square, topLeft = Offset(left, ground - hpH), size = Size(sizePx, hpH), alpha = 0.28f)
+            path.reset()
+            path.moveTo(left, ground)
+            path.lineTo(left, top)
+            path.lineTo(right, top)
+            path.lineTo(right, ground)
+            path.close()
+            drawPath(path, palette.shadow, style = Stroke(lineWidth * 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            glowPath(path, palette.square, intensity = 1.1f)
+        }
+    }
+
+    private fun DrawScope.drawBullets(palette: Palette, engine: GameEngine) {
+        val len = w * 0.03f
+        val core = lerp(palette.ball, Color.White, 0.6f)
+        for (b in engine.bullets) {
+            val x = px(b.x)
+            val y = py(b.y)
+            val start = Offset(x - len, y)
+            val end = Offset(x, y)
+            drawLine(palette.ballGlow, start, end, strokeWidth = lineWidth * 4f, cap = StrokeCap.Round, alpha = 0.25f)
+            drawLine(core, start, end, strokeWidth = lineWidth * 1.2f, cap = StrokeCap.Round)
+        }
+    }
+
+    private fun DrawScope.drawGems(palette: Palette, engine: GameEngine) {
+        val r = w * Rogue.GEM_RADIUS
+        for (g in engine.gems) {
+            val xW = g.x - engine.distance
+            if (xW < -0.05f || xW > 1.05f) continue
+            val bob = if (g.landed) r * 0.25f * sin(engine.time * 8f + g.x * 40f) else 0f
+            val cx = px(xW)
+            val cy = py(g.y) - bob
+            drawCircle(palette.gem, radius = r * 2.4f, center = Offset(cx, cy), alpha = 0.18f)
+            path.reset()
+            path.moveTo(cx, cy - r * 1.3f)
+            path.lineTo(cx + r, cy)
+            path.lineTo(cx, cy + r * 1.3f)
+            path.lineTo(cx - r, cy)
+            path.close()
+            drawPath(path, palette.gem, alpha = 0.9f)
+            drawPath(path, Color.White, alpha = 0.6f, style = Stroke(lineWidth * 0.5f, join = StrokeJoin.Round))
+        }
+    }
+
+    private fun DrawScope.drawXpBar(palette: Palette, engine: GameEngine) {
+        val margin = w * 0.05f
+        val barH = w * 0.012f
+        val y = h - h * 0.035f
+        val fullW = w - 2f * margin
+        val frac = (engine.xp.toFloat() / engine.xpToNext).coerceIn(0f, 1f)
+        drawRect(palette.shadow, topLeft = Offset(margin, y - barH), size = Size(fullW, barH * 3f), alpha = 0.6f)
+        drawRect(palette.square, topLeft = Offset(margin, y), size = Size(fullW, barH), alpha = 0.18f)
+        if (frac > 0f) {
+            drawRect(palette.square, topLeft = Offset(margin, y - barH * 0.6f), size = Size(fullW * frac, barH * 2.2f), alpha = 0.25f)
+            drawRect(palette.square, topLeft = Offset(margin, y), size = Size(fullW * frac, barH))
+        }
+        val size = w * 0.038f
+        neonText(
+            drawContext.canvas.nativeCanvas, "NIVEL " + engine.level.toString().padStart(2, '0'),
+            margin, y - barH * 2.2f, size, palette.hud, palette.square, palette.shadow, android.graphics.Paint.Align.LEFT,
+        )
+    }
+
     private fun DrawScope.drawBall(palette: Palette, engine: GameEngine) {
         val r = w * Layout.BALL_RADIUS
         val cx = px(Layout.BALL_X)
@@ -267,7 +355,7 @@ class Renderer {
         val velStretch = if (engine.airborne) {
             (abs(engine.ballVy) * Visual.STRETCH_PER_VELOCITY).coerceAtMost(Visual.STRETCH_MAX)
         } else 0f
-        val idle = if (engine.phase == GameEngine.Phase.READY) 0.03f * sin(engine.time * 3f) else 0f
+        val idle = if (engine.phase == GameEngine.Phase.SELECT) 0.03f * sin(engine.time * 3f) else 0f
         val squash = engine.squash + idle
         val sy = (1f + velStretch) * (1f + squash)
         val sx = (1f - velStretch * 0.5f) * (1f - squash * 0.6f)
@@ -369,10 +457,65 @@ class Renderer {
         textPaint.textSize = size
         val scoreWidth = textPaint.measureText("00000")
         neonText(canvas, hiText, w - margin - scoreWidth - size * 1.2f, top, size, palette.hud, palette.hudGlow, palette.shadow, right, alpha = 190)
+
+        if (engine.mode == GameMode.ROGUE) {
+            val left = android.graphics.Paint.Align.LEFT
+            neonText(canvas, "LV " + engine.level.toString().padStart(2, '0'), margin, top, size, palette.hud, palette.square, palette.shadow, left, alpha = 190)
+        }
+    }
+
+    /** Pantalla inicial: dos paneles, uno por modo. El toque elige según su altura (Flow.MODE_SPLIT_Y). */
+    private fun DrawScope.drawModeSelect(palette: Palette, engine: GameEngine) {
+        val canvas = drawContext.canvas.nativeCanvas
+        val center = android.graphics.Paint.Align.CENTER
+        val cx = w / 2f
+        val maxWidth = w * Visual.MESSAGE_MAX_WIDTH
+        val pulse = 0.5f + 0.5f * sin(engine.time * 3f)
+
+        neonText(canvas, "NEON RUNNER", cx, h * 0.085f, w * 0.09f, palette.hud, palette.enemy, palette.shadow, center, maxWidth = maxWidth)
+        neonText(canvas, "ELIGE UN MODO", cx, h * 0.085f + w * 0.07f, w * 0.036f, palette.hud, palette.hudGlow, palette.shadow, center, alpha = 200)
+
+        val split = h * Flow.MODE_SPLIT_Y
+        val panelH = w * 0.30f
+        val gap = w * 0.05f
+        drawModePanel(
+            palette, top = split - gap / 2f - panelH, height = panelH, accent = palette.ball, pulse = pulse,
+            title = "RUNNER", line1 = "Salta los triángulos.", line2 = "Solo tú y tu pulgar.",
+            hi = engine.highScoreFor(GameMode.RUNNER),
+        )
+        drawModePanel(
+            palette, top = split + gap / 2f, height = panelH, accent = palette.square, pulse = pulse,
+            title = "ROGUE-LITE", line1 = "Destruye cuadrados, sube de nivel.", line2 = "Disparas solo; tu trabajo es no chocar.",
+            hi = engine.highScoreFor(GameMode.ROGUE),
+        )
+    }
+
+    private fun DrawScope.drawModePanel(
+        palette: Palette, top: Float, height: Float, accent: Color, pulse: Float,
+        title: String, line1: String, line2: String, hi: Int,
+    ) {
+        val canvas = drawContext.canvas.nativeCanvas
+        val center = android.graphics.Paint.Align.CENTER
+        val margin = w * 0.08f
+        val left = margin
+        val right = w - margin
+        val cx = w / 2f
+        val corner = w * 0.03f
+        val rect = androidx.compose.ui.geometry.Rect(left, top, right, top + height)
+        path.reset()
+        path.addRoundRect(androidx.compose.ui.geometry.RoundRect(rect, corner, corner))
+        drawPath(path, palette.shadow, alpha = 0.8f)
+        glowPath(path, accent, width = lineWidth * 0.9f, intensity = 0.8f + 0.5f * pulse)
+
+        val innerWidth = (right - left) - w * 0.08f
+        neonText(canvas, title, cx, top + height * 0.36f, w * 0.075f, palette.hud, accent, palette.shadow, center, maxWidth = innerWidth)
+        neonText(canvas, line1, cx, top + height * 0.58f, w * 0.034f, palette.hud, accent, palette.shadow, center, alpha = 210, maxWidth = innerWidth)
+        neonText(canvas, line2, cx, top + height * 0.72f, w * 0.034f, palette.hud, accent, palette.shadow, center, alpha = 210, maxWidth = innerWidth)
+        neonText(canvas, "HI " + hi.toString().padStart(5, '0'), cx, top + height * 0.90f, w * 0.034f, palette.hud, palette.hudGlow, palette.shadow, center, alpha = 170)
     }
 
     private fun DrawScope.drawMessages(palette: Palette, engine: GameEngine) {
-        if (engine.phase == GameEngine.Phase.PLAYING) return
+        if (engine.phase == GameEngine.Phase.PLAYING && engine.levelMessageTime < 0f) return
         val canvas = drawContext.canvas.nativeCanvas
         val center = android.graphics.Paint.Align.CENTER
         val cx = w / 2f
@@ -390,21 +533,41 @@ class Renderer {
 
         val pulse = (160 + 95 * (0.5f + 0.5f * sin(engine.time * 4f))).toInt()
         when (engine.phase) {
-            GameEngine.Phase.READY -> {
-                title("NEON RUNNER", cy, palette.enemy)
-                subtitle("TOCA PARA SALTAR", cy + w * 0.11f, pulse)
-                subtitle("MANTÉN PARA SALTAR MÁS ALTO", cy + w * 0.18f, 170)
+            GameEngine.Phase.PLAYING -> {
+                // Aviso de subida de nivel (modo Rogue): aparece y se desvanece.
+                val t = engine.levelMessageTime / Rogue.LEVEL_MESSAGE_DURATION
+                val fade = (1f - t).coerceIn(0f, 1f) * 255
+                val a = minOf(255f, fade * 2f).toInt()
+                neonText(canvas, "NIVEL ${engine.level}", cx, cy, w * 0.08f, palette.hud, palette.square, palette.shadow, center, alpha = a)
+                subtitle(engine.levelMessage, cy + w * 0.09f, a)
             }
+            GameEngine.Phase.SELECT -> Unit
             GameEngine.Phase.DEAD -> {
                 title("GAME OVER", cy, palette.enemy)
-                if (engine.isNewHighScore) subtitle("¡NUEVO RÉCORD!", cy + w * 0.11f, pulse)
-                if (engine.canRestart) subtitle("TOCA PARA REINICIAR", cy + w * 0.19f, pulse)
+                var y = cy + w * 0.11f
+                if (engine.mode == GameMode.ROGUE) {
+                    subtitle("NIVEL ${engine.level} · ${engine.squaresDestroyed} CUADRADOS", y, 200)
+                    y += w * 0.07f
+                }
+                if (engine.isNewHighScore) {
+                    subtitle("¡NUEVO RÉCORD!", y, pulse)
+                    y += w * 0.07f
+                }
+                if (engine.canRestart) {
+                    subtitle("TOCA PARA REINICIAR", y + w * 0.02f, pulse)
+                    subtitle("MANTÉN PARA CAMBIAR DE MODO", y + w * 0.09f, 150)
+                    // Progreso de la pulsación larga
+                    val p = engine.modeSwitchProgress
+                    if (p > 0f) {
+                        val barW = w * 0.4f
+                        drawRect(palette.hud, topLeft = Offset(cx - barW / 2f, y + w * 0.12f), size = Size(barW * p, w * 0.008f), alpha = 0.8f)
+                    }
+                }
             }
             GameEngine.Phase.PAUSED -> {
                 title("PAUSA", cy, palette.ball)
                 subtitle("TOCA PARA CONTINUAR", cy + w * 0.11f, pulse)
             }
-            GameEngine.Phase.PLAYING -> Unit
         }
     }
 

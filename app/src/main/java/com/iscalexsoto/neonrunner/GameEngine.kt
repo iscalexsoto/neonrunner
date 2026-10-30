@@ -5,6 +5,7 @@ import com.iscalexsoto.neonrunner.GameConfig.Flow
 import com.iscalexsoto.neonrunner.GameConfig.Layout
 import com.iscalexsoto.neonrunner.GameConfig.Obstacles
 import com.iscalexsoto.neonrunner.GameConfig.Physics
+import com.iscalexsoto.neonrunner.GameConfig.Rogue
 import com.iscalexsoto.neonrunner.GameConfig.Scoring
 import com.iscalexsoto.neonrunner.GameConfig.Speed
 import com.iscalexsoto.neonrunner.GameConfig.Visual
@@ -19,8 +20,14 @@ interface GameEvents {
     fun onJump()
     fun onCrash()
     fun onDing()
-    fun onHighScore(score: Int)
+    fun onHighScore(mode: GameMode, score: Int)
+    fun onShoot() {}
+    fun onSquareDestroyed() {}
+    fun onLevelUp() {}
 }
+
+/** Los dos modos de juego. RUNNER es el original; ROGUE añade cuadrados, disparos y niveles. */
+enum class GameMode { RUNNER, ROGUE }
 
 /**
  * Lógica pura del juego (sin dependencias de Android ni Compose).
@@ -30,26 +37,47 @@ interface GameEvents {
  * x = [Layout.BALL_X] en pantalla y los obstáculos tienen una posición absoluta en el mundo.
  */
 class GameEngine(
-    initialHighScore: Int,
+    initialHighScores: Map<GameMode, Int>,
     private val events: GameEvents,
     private val rng: Random = Random(System.nanoTime()),
 ) {
-    enum class Phase { READY, PLAYING, DEAD, PAUSED }
+    enum class Phase { SELECT, PLAYING, DEAD, PAUSED }
 
-    /** Triángulo en el suelo. [x] es el centro de la base en coordenadas de mundo (W). */
+    /** Triángulo (pincho) en el suelo. [x] es el centro de la base en coordenadas de mundo (W). */
     class Obstacle(val x: Float, val base: Float, val height: Float) {
         val left get() = x - base / 2f
         val right get() = x + base / 2f
     }
 
-    var phase = Phase.READY; private set
+    /** Cuadrado destructible (solo modo ROGUE). [x] es el centro, apoyado en el suelo. */
+    class Square(val x: Float, val size: Float, val maxHp: Float, val xp: Int) {
+        var hp = maxHp
+        val left get() = x - size / 2f
+        val right get() = x + size / 2f
+        val hpFraction get() = (hp / maxHp).coerceIn(0f, 1f)
+    }
+
+    /** Disparo. Coordenadas de PANTALLA (W): vuela hacia la derecha a altura fija. */
+    class Bullet(var x: Float, val y: Float) {
+        var traveled = 0f
+    }
+
+    /** Rombo de experiencia. Coordenadas de mundo. */
+    class Gem(var x: Float, var y: Float, var vy: Float, val value: Int) {
+        var landed = false
+    }
+
+    var phase = Phase.SELECT; private set
+    var mode = GameMode.RUNNER; private set
     /** Tiempo total transcurrido (s), para animaciones ambientales. */
     var time = 0f; private set
     /** Distancia recorrida por la cámara (W). */
     var distance = 0f; private set
     var speed = Speed.START; private set
     var score = 0; private set
-    var highScore = initialHighScore; private set
+    private val highScores = initialHighScores.toMutableMap()
+    val highScore: Int get() = highScores[mode] ?: 0
+    fun highScoreFor(m: GameMode): Int = highScores[m] ?: 0
     var isNewHighScore = false; private set
 
     /** Altura del punto más bajo de la pelota sobre el suelo (W). */
@@ -70,22 +98,44 @@ class GameEngine(
 
     val obstacles = ArrayList<Obstacle>()
 
+    // ---- estado Rogue-lite
+    val squares = ArrayList<Square>()
+    val bullets = ArrayList<Bullet>()
+    val gems = ArrayList<Gem>()
+    var level = 1; private set
+    var xp = 0; private set
+    val xpToNext: Int get() = Rogue.XP_BASE + (level - 1) * Rogue.XP_PER_LEVEL
+    var fireRate = Rogue.FIRE_RATE_START; private set
+    var damage = Rogue.DAMAGE_START; private set
+    var range = Rogue.RANGE_START; private set
+    var squaresDestroyed = 0; private set
+    /** Texto de la última subida de nivel y segundos desde que ocurrió (negativo = ninguno). */
+    var levelMessage = ""; private set
+    var levelMessageTime = -1f; private set
+    private var fireCooldown = 0f
+
     private var holding = false
     private var holdTime = 0f
     private var jumpBuffered = false
     private var nextSpawnX = Obstacles.FIRST_OBSTACLE_DISTANCE
+    /** En game over: momento en que empezó el toque actual (negativo = no hay toque). */
+    private var deadPressStart = -1f
 
     val canRestart: Boolean get() = phase == Phase.DEAD && deadTime >= Flow.RESTART_DELAY
+    /** Progreso [0, 1] de la pulsación larga que lleva a la selección de modo. */
+    val modeSwitchProgress: Float
+        get() = if (phase == Phase.DEAD && deadPressStart >= 0f) ((time - deadPressStart) / Flow.MODE_SWITCH_HOLD).coerceIn(0f, 1f) else 0f
 
     // ---------------------------------------------------------------- input
 
-    fun onPress() {
+    /**
+     * Toque. [yFrac] es la posición vertical del dedo como fracción de la altura de la pantalla
+     * (0 = arriba); solo importa en la pantalla de selección de modo.
+     */
+    fun onPress(yFrac: Float = 0f) {
         holding = true
         when (phase) {
-            Phase.READY -> {
-                phase = Phase.PLAYING
-                jump()
-            }
+            Phase.SELECT -> startGame(if (yFrac < Flow.MODE_SPLIT_Y) GameMode.RUNNER else GameMode.ROGUE)
             Phase.PLAYING -> {
                 if (!airborne) {
                     jump()
@@ -93,18 +143,24 @@ class GameEngine(
                     jumpBuffered = true
                 }
             }
-            Phase.DEAD -> if (canRestart) restart()
+            Phase.DEAD -> if (canRestart) deadPressStart = time
             Phase.PAUSED -> phase = Phase.PLAYING
         }
     }
 
     fun onRelease() {
         holding = false
+        if (phase == Phase.DEAD && deadPressStart >= 0f) {
+            // Toque corto: reiniciar el mismo modo. (La pulsación larga se resuelve en update.)
+            deadPressStart = -1f
+            startGame(mode)
+        }
     }
 
     /** Llamar cuando la app pasa a segundo plano. */
     fun onAppPaused() {
         holding = false
+        deadPressStart = -1f
         if (phase == Phase.PLAYING) phase = Phase.PAUSED
     }
 
@@ -116,11 +172,22 @@ class GameEngine(
             hudFlashTime += dt
             if (hudFlashTime > Scoring.HUD_FLASH_DURATION) hudFlashTime = -1f
         }
+        if (levelMessageTime >= 0f) {
+            levelMessageTime += dt
+            if (levelMessageTime > Rogue.LEVEL_MESSAGE_DURATION) levelMessageTime = -1f
+        }
         updateSquash(dt)
         when (phase) {
             Phase.PLAYING -> step(dt)
-            Phase.DEAD -> deadTime += dt
-            Phase.READY, Phase.PAUSED -> Unit
+            Phase.DEAD -> {
+                deadTime += dt
+                if (deadPressStart >= 0f && time - deadPressStart >= Flow.MODE_SWITCH_HOLD) {
+                    deadPressStart = -1f
+                    holding = false
+                    goToModeSelect()
+                }
+            }
+            Phase.SELECT, Phase.PAUSED -> Unit
         }
     }
 
@@ -150,6 +217,12 @@ class GameEngine(
 
         spawnObstacles()
         cullObstacles()
+
+        if (mode == GameMode.ROGUE) {
+            updateFire(dt)
+            updateBullets(dt)
+            updateGems(dt)
+        }
 
         // Puntuación
         val newScore = (distance * Scoring.POINTS_PER_W).toInt()
@@ -188,18 +261,33 @@ class GameEngine(
         phase = Phase.DEAD
         deadTime = 0f
         holding = false
+        deadPressStart = -1f
         squash = -0.5f
         squashVel = 0f
         if (score > highScore) {
-            highScore = score
+            highScores[mode] = score
             isNewHighScore = true
-            events.onHighScore(score)
+            events.onHighScore(mode, score)
         }
         events.onCrash()
     }
 
-    private fun restart() {
+    private fun goToModeSelect() {
+        resetWorld()
+        phase = Phase.SELECT
+    }
+
+    private fun startGame(newMode: GameMode) {
+        mode = newMode
+        resetWorld()
+        phase = Phase.PLAYING
+    }
+
+    private fun resetWorld() {
         obstacles.clear()
+        squares.clear()
+        bullets.clear()
+        gems.clear()
         distance = 0f
         speed = Speed.START
         score = 0
@@ -214,34 +302,63 @@ class GameEngine(
         deadTime = 0f
         hudFlashTime = -1f
         nextSpawnX = Obstacles.FIRST_OBSTACLE_DISTANCE
-        phase = Phase.PLAYING
+        level = 1
+        xp = 0
+        fireRate = Rogue.FIRE_RATE_START
+        damage = Rogue.DAMAGE_START
+        range = Rogue.RANGE_START
+        squaresDestroyed = 0
+        fireCooldown = 0f
+        levelMessage = ""
+        levelMessageTime = -1f
     }
 
     // ---------------------------------------------------------------- obstacles
 
     private fun spawnObstacles() {
         while (nextSpawnX < distance + Obstacles.SPAWN_X) {
-            val count = pickGroupSize()
-            val maxHeight = when (count) {
-                1 -> Obstacles.MAX_HEIGHT
-                2 -> Obstacles.GROUP2_MAX_HEIGHT
-                else -> Obstacles.GROUP3_MAX_HEIGHT
-            }
-            var x = nextSpawnX
-            var groupEnd = x
-            repeat(count) {
-                val h = Obstacles.MIN_HEIGHT + rng.nextFloat() * (maxHeight - Obstacles.MIN_HEIGHT)
-                val jitter = 1f + (rng.nextFloat() * 2f - 1f) * Obstacles.BASE_JITTER
-                val b = h * Obstacles.BASE_RATIO * jitter
-                obstacles.add(Obstacle(x + b / 2f, b, h))
-                groupEnd = x + b
-                x += b * Obstacles.GROUP_SPACING
+            val groupEnd = if (mode == GameMode.ROGUE && rng.nextFloat() < Rogue.SQUARE_CHANCE) {
+                spawnSquare(nextSpawnX)
+            } else {
+                spawnTriangleGroup(nextSpawnX)
             }
             // El hueco crece con la velocidad para que siempre se pueda saltar.
             val minGap = speed * (Obstacles.MAX_AIR_TIME * Obstacles.GAP_SAFETY + Obstacles.GAP_REACTION)
             val extra = rng.nextFloat() * speed * Obstacles.GAP_RANDOM_MAX
             nextSpawnX = groupEnd + minGap + extra
         }
+    }
+
+    /** Crea un grupo de 1 a 3 triángulos a partir de [start] y devuelve dónde termina. */
+    private fun spawnTriangleGroup(start: Float): Float {
+        val count = pickGroupSize()
+        val maxHeight = when (count) {
+            1 -> Obstacles.MAX_HEIGHT
+            2 -> Obstacles.GROUP2_MAX_HEIGHT
+            else -> Obstacles.GROUP3_MAX_HEIGHT
+        }
+        var x = start
+        var groupEnd = x
+        repeat(count) {
+            val h = Obstacles.MIN_HEIGHT + rng.nextFloat() * (maxHeight - Obstacles.MIN_HEIGHT)
+            val jitter = 1f + (rng.nextFloat() * 2f - 1f) * Obstacles.BASE_JITTER
+            val b = h * Obstacles.BASE_RATIO * jitter
+            obstacles.add(Obstacle(x + b / 2f, b, h))
+            groupEnd = x + b
+            x += b * Obstacles.GROUP_SPACING
+        }
+        return groupEnd
+    }
+
+    /** Crea un cuadrado (normal o blindado) a partir de [start] y devuelve dónde termina. */
+    private fun spawnSquare(start: Float): Float {
+        val big = speed >= Rogue.BIG_MIN_SPEED && rng.nextFloat() < Rogue.BIG_CHANCE
+        val size = if (big) Rogue.BIG_SIZE else Rogue.SMALL_SIZE
+        val baseHp = if (big) Rogue.BIG_HP else Rogue.SMALL_HP
+        val growth = 1f + Rogue.HP_GROWTH_PER_1000 * (score / 1000)   // escalonado cada 1000 puntos
+        val xpValue = if (big) Rogue.BIG_XP else Rogue.SMALL_XP
+        squares.add(Square(start + size / 2f, size, baseHp * growth, xpValue))
+        return start + size
     }
 
     private fun pickGroupSize(): Int {
@@ -264,6 +381,96 @@ class GameEngine(
     private fun cullObstacles() {
         val limit = distance - 0.3f
         obstacles.removeAll { it.right < limit }
+        squares.removeAll { it.right < limit }
+    }
+
+    // ---------------------------------------------------------------- rogue: disparos
+
+    private fun updateFire(dt: Float) {
+        fireCooldown -= dt
+        if (fireCooldown > 0f) return
+        // Solo se dispara si hay un cuadrado al alcance, delante de la pelota.
+        val ballFront = distance + Layout.BALL_X
+        val hasTarget = squares.any { it.right > ballFront && it.left - ballFront < range }
+        if (!hasTarget) return
+        fireCooldown = 1f / fireRate
+        bullets.add(Bullet(Layout.BALL_X + Layout.BALL_RADIUS, ballY + Layout.BALL_RADIUS))
+        events.onShoot()
+    }
+
+    private fun updateBullets(dt: Float) {
+        val step = Rogue.BULLET_SPEED * dt
+        val it = bullets.iterator()
+        while (it.hasNext()) {
+            val b = it.next()
+            b.x += step
+            b.traveled += step
+            if (b.traveled > range + 0.1f || b.x > 1.2f) {
+                it.remove()
+                continue
+            }
+            val hit = squares.firstOrNull { s ->
+                val left = s.left - distance
+                val right = s.right - distance
+                b.x + Rogue.BULLET_RADIUS >= left && b.x - Rogue.BULLET_RADIUS <= right &&
+                    b.y - Rogue.BULLET_RADIUS <= s.size && b.y + Rogue.BULLET_RADIUS >= 0f
+            } ?: continue
+            it.remove()
+            hit.hp -= damage
+            if (hit.hp <= 0.001f) destroySquare(hit)
+        }
+    }
+
+    private fun destroySquare(s: Square) {
+        squares.remove(s)
+        squaresDestroyed++
+        gems.add(Gem(s.x, s.size / 2f, Rogue.GEM_POP_VY, s.xp))
+        events.onSquareDestroyed()
+    }
+
+    private fun updateGems(dt: Float) {
+        val ballCx = distance + Layout.BALL_X
+        val ballCy = ballY + Layout.BALL_RADIUS
+        val it = gems.iterator()
+        while (it.hasNext()) {
+            val g = it.next()
+            if (!g.landed) {
+                g.vy -= Rogue.GEM_GRAVITY * dt
+                g.y += g.vy * dt
+                if (g.y <= Rogue.GEM_RADIUS) {
+                    g.y = Rogue.GEM_RADIUS
+                    g.vy = 0f
+                    g.landed = true
+                }
+            } else if (g.x > ballCx) {
+                // En el suelo se desliza hacia la pelota; si la pelota está en el aire, se pierde.
+                g.x -= Rogue.GEM_SLIDE_SPEED * dt
+            }
+            val dx = g.x - ballCx
+            val dy = g.y - ballCy
+            val reach = Layout.BALL_RADIUS + Rogue.GEM_RADIUS * 2f
+            if (dx * dx + dy * dy <= reach * reach) {
+                it.remove()
+                gainXp(g.value)
+            } else if (g.x - distance < -0.1f) {
+                it.remove()
+            }
+        }
+    }
+
+    private fun gainXp(amount: Int) {
+        xp += amount
+        while (xp >= xpToNext) {
+            xp -= xpToNext
+            level++
+            levelMessage = when ((level - 2) % 3) {
+                0 -> { fireRate *= Rogue.FIRE_RATE_MULT; "CADENCIA +" }
+                1 -> { damage += Rogue.DAMAGE_ADD; "DAÑO +" }
+                else -> { range += Rogue.RANGE_ADD; "ALCANCE +" }
+            }
+            levelMessageTime = 0f
+            events.onLevelUp()
+        }
     }
 
     // ---------------------------------------------------------------- collision
@@ -278,6 +485,12 @@ class GameEngine(
             val b = o.base * Physics.HITBOX_TRIANGLE
             val h = o.height * Physics.HITBOX_TRIANGLE
             if (circleHitsTriangle(cx, cy, r, tx - b / 2f, 0f, tx + b / 2f, 0f, tx, h)) return true
+        }
+        for (s in squares) {
+            val sx = s.x - distance
+            if (abs(sx - cx) > s.size + Layout.BALL_RADIUS) continue
+            val half = s.size * Rogue.HITBOX_SQUARE / 2f
+            if (circleHitsRect(cx, cy, r, sx - half, 0f, sx + half, s.size * Rogue.HITBOX_SQUARE)) return true
         }
         return false
     }
@@ -306,6 +519,15 @@ class GameEngine(
             return segmentDistance(cx, cy, ax, ay, bx, by) < r ||
                 segmentDistance(cx, cy, bx, by, px, py) < r ||
                 segmentDistance(cx, cy, px, py, ax, ay) < r
+        }
+
+        /** ¿El círculo (cx, cy, r) toca el rectángulo [left, right] x [bottom, top]? */
+        fun circleHitsRect(cx: Float, cy: Float, r: Float, left: Float, bottom: Float, right: Float, top: Float): Boolean {
+            val nx = cx.coerceIn(left, right)
+            val ny = cy.coerceIn(bottom, top)
+            val dx = cx - nx
+            val dy = cy - ny
+            return dx * dx + dy * dy < r * r
         }
 
         private fun edgeSign(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float): Float =

@@ -35,6 +35,9 @@ class SoundManager(context: Context) {
     private val jumpId: Int
     private val crashId: Int
     private val dingId: Int
+    private val shootId: Int
+    private val popId: Int
+    private val levelUpId: Int
 
     init {
         pool.setOnLoadCompleteListener { _, sampleId, status -> if (status == 0) loaded.add(sampleId) }
@@ -42,16 +45,22 @@ class SoundManager(context: Context) {
         jumpId = pool.load(writeWav(File(dir, "jump.wav"), synthJump()), 1)
         crashId = pool.load(writeWav(File(dir, "crash.wav"), synthCrash()), 1)
         dingId = pool.load(writeWav(File(dir, "ding.wav"), synthDing()), 1)
+        shootId = pool.load(writeWav(File(dir, "shoot.wav"), synthShoot()), 1)
+        popId = pool.load(writeWav(File(dir, "pop.wav"), synthPop()), 1)
+        levelUpId = pool.load(writeWav(File(dir, "levelup.wav"), synthLevelUp()), 1)
     }
 
     fun playJump() = play(jumpId)
     fun playCrash() = play(crashId)
     fun playDing() = play(dingId)
+    fun playShoot() = play(shootId, GameConfig.Audio.SHOOT_VOLUME)
+    fun playPop() = play(popId)
+    fun playLevelUp() = play(levelUpId)
 
     fun release() = pool.release()
 
-    private fun play(id: Int) {
-        if (id in loaded) pool.play(id, GameConfig.Audio.VOLUME, GameConfig.Audio.VOLUME, 1, 0, 1f)
+    private fun play(id: Int, volume: Float = GameConfig.Audio.VOLUME) {
+        if (id in loaded) pool.play(id, volume, volume, 1, 0, 1f)
     }
 
     // ------------------------------------------------------------ síntesis
@@ -105,6 +114,58 @@ class SoundManager(context: Context) {
             val env = exp(-3.0 * local) * minOf(1.0, local * 30.0)
             val tone = sin(2.0 * PI * freq * t) + 0.3 * sin(2.0 * PI * freq * 2 * t)
             out[i] = (tone * env * 0.45).toFloat()
+        }
+        return out
+    }
+
+    /** Disparo: "pew" muy corto y agudo, barrido descendente. */
+    private fun synthShoot(): FloatArray {
+        val n = (rate * 0.06f).toInt()
+        val out = FloatArray(n)
+        var phase = 0.0
+        for (i in 0 until n) {
+            val t = i.toFloat() / n
+            val freq = 1400.0 - 900.0 * t
+            phase += 2.0 * PI * freq / rate
+            val square = if (sin(phase) >= 0) 1.0 else -1.0
+            val env = (1f - t) * minOf(1f, t * 25f)
+            out[i] = (square * env * 0.5).toFloat()
+        }
+        return out
+    }
+
+    /** Cuadrado destruido: "pop" con ruido breve y tono que cae. */
+    private fun synthPop(): FloatArray {
+        val n = (rate * 0.14f).toInt()
+        val out = FloatArray(n)
+        val rnd = Random(11)
+        var phase = 0.0
+        var noise = 0.0
+        for (i in 0 until n) {
+            val t = i.toFloat() / n
+            val freq = 520.0 - 380.0 * t
+            phase += 2.0 * PI * freq / rate
+            if (i % 2 == 0) noise = rnd.nextDouble(-1.0, 1.0)
+            val env = exp(-6.0 * t)
+            out[i] = ((sin(phase) * 0.6 + noise * 0.4) * env * 0.7).toFloat()
+        }
+        return out
+    }
+
+    /** Subida de nivel: arpegio de tres notas ascendentes. */
+    private fun synthLevelUp(): FloatArray {
+        val n = (rate * 0.32f).toInt()
+        val out = FloatArray(n)
+        val notes = doubleArrayOf(659.25, 830.61, 1046.5)   // E5, G#5, C6
+        for (i in 0 until n) {
+            val t = i.toFloat() / rate
+            val progress = i.toFloat() / n
+            val idx = minOf(2, (progress * 3f).toInt())
+            val local = progress * 3f - idx
+            val freq = notes[idx]
+            val env = exp(-2.5 * local) * minOf(1.0, local * 40.0)
+            val tone = sin(2.0 * PI * freq * t) + 0.25 * sin(2.0 * PI * freq * 2 * t)
+            out[i] = (tone * env * 0.4).toFloat()
         }
         return out
     }
