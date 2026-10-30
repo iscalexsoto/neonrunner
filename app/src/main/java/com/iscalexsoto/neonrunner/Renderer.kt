@@ -467,6 +467,44 @@ class Renderer {
         }
     }
 
+    /** Subida de nivel: el mundo queda congelado detrás y se eligen mejoras tocando una carta. */
+    private fun DrawScope.drawLevelUpCards(palette: Palette, engine: GameEngine) {
+        val canvas = drawContext.canvas.nativeCanvas
+        val center = android.graphics.Paint.Align.CENTER
+        val left = android.graphics.Paint.Align.LEFT
+        val right = android.graphics.Paint.Align.RIGHT
+        val cx = w / 2f
+        drawRect(palette.shadow, alpha = 0.45f)
+        neonText(canvas, "¡NIVEL ${engine.level + 1}!", cx, h * 0.09f, w * 0.085f, palette.hud, palette.square, palette.shadow, center)
+        neonText(canvas, "ELIGE UNA MEJORA", cx, h * 0.09f + w * 0.065f, w * 0.036f, palette.hud, palette.hudGlow, palette.shadow, center, alpha = 210)
+
+        val margin = w * 0.08f
+        val cardLeft = margin
+        val cardRight = w - margin
+        val corner = w * 0.03f
+        val pulse = 0.5f + 0.5f * sin(engine.time * 3f)
+        engine.levelUpOptions.forEachIndexed { i, upgrade ->
+            val top = h * Rogue.cardTopY(i)
+            val height = h * Rogue.CARD_HEIGHT_Y
+            val rect = androidx.compose.ui.geometry.Rect(cardLeft, top, cardRight, top + height)
+            path.reset()
+            path.addRoundRect(androidx.compose.ui.geometry.RoundRect(rect, corner, corner))
+            drawPath(path, palette.shadow, alpha = 0.85f)
+            glowPath(path, palette.square, width = lineWidth * 0.9f, intensity = 0.7f + 0.5f * pulse)
+
+            val innerLeft = cardLeft + w * 0.05f
+            val innerRight = cardRight - w * 0.05f
+            val innerWidth = innerRight - innerLeft
+            neonText(canvas, upgrade.title, innerLeft, top + height * 0.36f, w * 0.06f, palette.hud, palette.square, palette.shadow, left, maxWidth = innerWidth * 0.7f)
+            val count = engine.upgradeCounts[upgrade.ordinal]
+            if (count > 0) {
+                neonText(canvas, "x$count", innerRight, top + height * 0.36f, w * 0.045f, palette.hud, palette.hudGlow, palette.shadow, right, alpha = 200)
+            }
+            neonText(canvas, upgrade.description, innerLeft, top + height * 0.60f, w * 0.032f, palette.hud, palette.hudGlow, palette.shadow, left, alpha = 210, maxWidth = innerWidth)
+            neonText(canvas, engine.upgradePreview(upgrade), innerLeft, top + height * 0.82f, w * 0.032f, palette.hud, palette.square, palette.shadow, left, alpha = 230, maxWidth = innerWidth)
+        }
+    }
+
     /** Pantalla inicial: dos paneles, uno por modo. El toque elige según su altura (Flow.MODE_SPLIT_Y). */
     private fun DrawScope.drawModeSelect(palette: Palette, engine: GameEngine) {
         val canvas = drawContext.canvas.nativeCanvas
@@ -545,11 +583,14 @@ class Renderer {
                 subtitle(engine.levelMessage, cy + w * 0.09f, a)
             }
             GameEngine.Phase.SELECT -> Unit
+            GameEngine.Phase.LEVEL_UP -> drawLevelUpCards(palette, engine)
             GameEngine.Phase.DEAD -> {
                 title("GAME OVER", cy, palette.enemy)
                 var y = cy + w * 0.11f
                 if (engine.mode == GameMode.ROGUE) {
                     subtitle("NIVEL ${engine.level} · ${engine.squaresDestroyed} CUADRADOS", y, 200)
+                    y += w * 0.06f
+                    subtitle("DISTANCIA ${engine.distanceScore} + COMBATE ${engine.combatScore}", y, 170)
                     y += w * 0.07f
                 }
                 if (engine.isNewHighScore) {

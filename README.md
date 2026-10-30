@@ -16,9 +16,12 @@ Al abrir el juego eliges uno de dos modos tocando su panel:
 - **Rogue-lite**: además de triángulos hay **cuadrados con vida**. La pelota dispara sola hacia
   adelante (también en el aire) cuando hay un cuadrado al alcance. Un cuadrado destruido suelta un
   rombo de experiencia que cae y persigue a la pelota por el suelo hasta tocarla (si tardas demasiado
-  en bajar, desaparece). Al llenar la barra subes de nivel y mejora una estadística por turno: cadencia, daño o
-  alcance. Los cuadrados que no logres destruir a tiempo hay que saltarlos (los blindados piden
-  salto alto), y su vida crece cada 1000 puntos.
+  en bajar, desaparece). Al llenar la barra el juego se detiene y eliges **una de tres mejoras**:
+  cadencia, daño, alcance o bala rápida. Los cuadrados que no logres destruir a tiempo hay que
+  saltarlos (los blindados piden salto alto), y su vida crece cada 1000 puntos.
+  En este modo la velocidad sube con la distancia (menos que en Runner) y también con cada nivel, y la
+  puntuación es distancia + 15 puntos por cada punto de experiencia recogido (en una partida típica,
+  unos 60 % distancia y 40 % combate).
 
 | Acción | Resultado |
 | --- | --- |
@@ -27,7 +30,8 @@ Al abrir el juego eliges uno de dos modos tocando su panel:
 | Chocar con un triángulo o cuadrado | Fin de la partida. Tras una pausa breve, un toque reinicia el mismo modo |
 | Mantener presionado en game over | Vuelve a la selección de modo |
 
-La puntuación es la distancia recorrida (arriba a la derecha, junto con el récord `HI`, uno por modo).
+La puntuación (arriba a la derecha, junto con el récord `HI`, uno por modo) es la distancia recorrida;
+en Rogue-lite se le suma lo ganado en combate.
 Cada 100 puntos suena un "ding" y cada 400 la paleta transiciona suavemente entre noche y día/atardecer.
 
 ## Instalar

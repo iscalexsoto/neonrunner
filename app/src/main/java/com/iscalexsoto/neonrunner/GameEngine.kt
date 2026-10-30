@@ -29,6 +29,14 @@ interface GameEvents {
 /** Los dos modos de juego. RUNNER es el original; ROGUE añade cuadrados, disparos y niveles. */
 enum class GameMode { RUNNER, ROGUE }
 
+/** Mejoras que se pueden elegir al subir de nivel (modo ROGUE). */
+enum class Upgrade(val title: String, val description: String) {
+    FIRE_RATE("CADENCIA", "Más disparos por segundo"),
+    DAMAGE("DAÑO", "Cada bala quita más vida"),
+    RANGE("ALCANCE", "Empiezas a disparar desde más lejos"),
+    BULLET_SPEED("BALA RÁPIDA", "Las balas llegan antes al blanco"),
+}
+
 /**
  * Lógica pura del juego (sin dependencias de Android ni Compose).
  *
@@ -41,7 +49,7 @@ class GameEngine(
     private val events: GameEvents,
     private val rng: Random = Random(System.nanoTime()),
 ) {
-    enum class Phase { SELECT, PLAYING, DEAD, PAUSED }
+    enum class Phase { SELECT, PLAYING, LEVEL_UP, DEAD, PAUSED }
 
     /** Triángulo (pincho) en el suelo. [x] es el centro de la base en coordenadas de mundo (W). */
     class Obstacle(val x: Float, val base: Float, val height: Float) {
@@ -76,7 +84,10 @@ class GameEngine(
     /** Distancia recorrida por la cámara (W). */
     var distance = 0f; private set
     var speed = Speed.START; private set
+    /** Puntuación total. En ROGUE es [distanceScore] + [combatScore]. */
     var score = 0; private set
+    var distanceScore = 0; private set
+    var combatScore = 0; private set
     private val highScores = initialHighScores.toMutableMap()
     val highScore: Int get() = highScores[mode] ?: 0
     fun highScoreFor(m: GameMode): Int = highScores[m] ?: 0
@@ -110,7 +121,13 @@ class GameEngine(
     var fireRate = Rogue.FIRE_RATE_START; private set
     var damage = Rogue.DAMAGE_START; private set
     var range = Rogue.RANGE_START; private set
+    var bulletSpeed = Rogue.BULLET_SPEED_START; private set
     var squaresDestroyed = 0; private set
+    var xpCollected = 0; private set
+    /** Veces que se ha elegido cada mejora. */
+    val upgradeCounts = IntArray(Upgrade.entries.size)
+    /** Mejoras ofrecidas en la pantalla de subida de nivel (vacío fuera de ella). */
+    var levelUpOptions: List<Upgrade> = emptyList(); private set
     /** Texto de la última subida de nivel y segundos desde que ocurrió (negativo = ninguno). */
     var levelMessage = ""; private set
     var levelMessageTime = -1f; private set
@@ -144,6 +161,10 @@ class GameEngine(
                 } else if (ballVy < 0f && ballY <= Physics.JUMP_BUFFER_HEIGHT) {
                     jumpBuffered = true
                 }
+            }
+            Phase.LEVEL_UP -> {
+                val index = cardIndexAt(yFrac)
+                if (index != null) chooseUpgrade(index)
             }
             Phase.DEAD -> if (canRestart) deadPressStart = time
             Phase.PAUSED -> phase = Phase.PLAYING
@@ -189,12 +210,16 @@ class GameEngine(
                     goToModeSelect()
                 }
             }
-            Phase.SELECT, Phase.PAUSED -> Unit
+            Phase.SELECT, Phase.PAUSED, Phase.LEVEL_UP -> Unit
         }
     }
 
     private fun step(dt: Float) {
-        speed = min(Speed.MAX, Speed.START + score * Speed.PER_POINT)
+        speed = if (mode == GameMode.ROGUE) {
+            min(Speed.MAX, Speed.START + distanceScore * Rogue.SPEED_PER_POINT + (level - 1) * Rogue.SPEED_PER_LEVEL)
+        } else {
+            min(Speed.MAX, Speed.START + score * Speed.PER_POINT)
+        }
         distance += speed * dt
 
         // Pelota
@@ -227,12 +252,8 @@ class GameEngine(
         }
 
         // Puntuación
-        val newScore = (distance * Scoring.POINTS_PER_W).toInt()
-        if (newScore / Scoring.DING_EVERY > score / Scoring.DING_EVERY) {
-            hudFlashTime = 0f
-            events.onDing()
-        }
-        score = newScore
+        distanceScore = (distance * Scoring.POINTS_PER_W).toInt()
+        updateScore()
 
         // Ciclo día / noche: alterna cada PERIOD_POINTS y transiciona suavemente.
         val cycleIndex = score / Cycle.PERIOD_POINTS
@@ -241,6 +262,16 @@ class GameEngine(
         nightBlend = moveToward(nightBlend, target, dt / Cycle.TRANSITION_SECONDS)
 
         if (collides()) die()
+    }
+
+    /** Recalcula la puntuación total y dispara el "ding" al cruzar cada DING_EVERY puntos. */
+    private fun updateScore() {
+        val newScore = distanceScore + combatScore
+        if (newScore / Scoring.DING_EVERY > score / Scoring.DING_EVERY) {
+            hudFlashTime = 0f
+            events.onDing()
+        }
+        score = newScore
     }
 
     private fun updateSquash(dt: Float) {
@@ -293,6 +324,8 @@ class GameEngine(
         distance = 0f
         speed = Speed.START
         score = 0
+        distanceScore = 0
+        combatScore = 0
         ballY = 0f
         ballVy = 0f
         airborne = false
@@ -309,7 +342,11 @@ class GameEngine(
         fireRate = Rogue.FIRE_RATE_START
         damage = Rogue.DAMAGE_START
         range = Rogue.RANGE_START
+        bulletSpeed = Rogue.BULLET_SPEED_START
         squaresDestroyed = 0
+        xpCollected = 0
+        upgradeCounts.fill(0)
+        levelUpOptions = emptyList()
         fireCooldown = 0f
         levelMessage = ""
         levelMessageTime = -1f
@@ -401,7 +438,7 @@ class GameEngine(
     }
 
     private fun updateBullets(dt: Float) {
-        val step = Rogue.BULLET_SPEED * dt
+        val step = bulletSpeed * dt
         val it = bullets.iterator()
         while (it.hasNext()) {
             val b = it.next()
@@ -465,17 +502,61 @@ class GameEngine(
 
     private fun gainXp(amount: Int) {
         xp += amount
-        while (xp >= xpToNext) {
-            xp -= xpToNext
-            level++
-            levelMessage = when ((level - 2) % 3) {
-                0 -> { fireRate *= Rogue.FIRE_RATE_MULT; "CADENCIA +" }
-                1 -> { damage += Rogue.DAMAGE_ADD; "DAÑO +" }
-                else -> { range += Rogue.RANGE_ADD; "ALCANCE +" }
-            }
-            levelMessageTime = 0f
-            events.onLevelUp()
+        xpCollected += amount
+        combatScore = xpCollected * Rogue.XP_POINTS
+        updateScore()
+        if (xp >= xpToNext) openLevelUp()
+    }
+
+    /** Detiene el juego y ofrece mejoras distintas al azar. */
+    private fun openLevelUp() {
+        holding = false
+        levelUpOptions = Upgrade.entries.shuffled(rng).take(Rogue.UPGRADE_OPTIONS)
+        phase = Phase.LEVEL_UP
+    }
+
+    /** Índice de la carta bajo un toque a [yFrac] de la altura, o null si no toca ninguna. */
+    fun cardIndexAt(yFrac: Float): Int? {
+        for (i in levelUpOptions.indices) {
+            val top = Rogue.cardTopY(i)
+            if (yFrac >= top && yFrac <= top + Rogue.CARD_HEIGHT_Y) return i
         }
+        return null
+    }
+
+    /** Aplica la mejora elegida y reanuda (o encadena otra subida si la XP sobrante alcanza). */
+    fun chooseUpgrade(index: Int) {
+        if (phase != Phase.LEVEL_UP) return
+        val upgrade = levelUpOptions.getOrNull(index) ?: return
+        when (upgrade) {
+            Upgrade.FIRE_RATE -> fireRate *= Rogue.FIRE_RATE_MULT
+            Upgrade.DAMAGE -> damage += Rogue.DAMAGE_ADD
+            Upgrade.RANGE -> range += Rogue.RANGE_ADD
+            Upgrade.BULLET_SPEED -> bulletSpeed *= Rogue.BULLET_SPEED_MULT
+        }
+        upgradeCounts[upgrade.ordinal]++
+        xp -= xpToNext
+        level++
+        levelMessage = upgrade.title + " +"
+        levelMessageTime = 0f
+        events.onLevelUp()
+        if (xp >= xpToNext) openLevelUp() else {
+            levelUpOptions = emptyList()
+            phase = Phase.PLAYING
+        }
+    }
+
+    /** Texto "valor actual → valor con la mejora", para las cartas. */
+    fun upgradePreview(upgrade: Upgrade): String = when (upgrade) {
+        Upgrade.FIRE_RATE -> "${fmt(fireRate)} → ${fmt(fireRate * Rogue.FIRE_RATE_MULT)} por segundo"
+        Upgrade.DAMAGE -> "${fmt(damage)} → ${fmt(damage + Rogue.DAMAGE_ADD)} de daño"
+        Upgrade.RANGE -> "${fmt(range * 100)} → ${fmt((range + Rogue.RANGE_ADD) * 100)} % de pantalla"
+        Upgrade.BULLET_SPEED -> "${fmt(bulletSpeed)} → ${fmt(bulletSpeed * Rogue.BULLET_SPEED_MULT)} pantallas/s"
+    }
+
+    private fun fmt(v: Float): String {
+        val rounded = (v * 10f + 0.5f).toInt()
+        return if (rounded % 10 == 0) (rounded / 10).toString() else "${rounded / 10}.${rounded % 10}"
     }
 
     // ---------------------------------------------------------------- collision

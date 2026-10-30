@@ -180,21 +180,43 @@ object GameConfig {
         const val HP_GROWTH_PER_1000 = 0.35f
         const val HITBOX_SQUARE = 0.88f
 
+        /**
+         * Velocidad en Rogue: la distancia pesa menos que en Runner y cada nivel suma.
+         * Con estos valores, 2500 puntos de distancia (+0.55) y nivel 10 (+0.32) llegan juntos
+         * al máximo: ~60 % distancia, ~40 % nivel.
+         */
+        const val SPEED_PER_POINT = 0.00022f
+        const val SPEED_PER_LEVEL = 0.035f
+        /**
+         * Puntuación en Rogue = puntos de distancia + XP recogida * XP_POINTS.
+         * En la partida de referencia (2500 de distancia, ~108 XP) el combate aporta ~40 %.
+         */
+        const val XP_POINTS = 15
+
         /** Disparo: sale del centro de la pelota hacia adelante, también en el aire. */
-        const val BULLET_SPEED = 1.8f      // W/s respecto a la pantalla
         const val BULLET_RADIUS = 0.009f
         /** Estadísticas iniciales. */
-        const val FIRE_RATE_START = 2.5f   // disparos por segundo
+        const val FIRE_RATE_START = 2.5f    // disparos por segundo
         const val DAMAGE_START = 1.0f
-        const val RANGE_START = 0.55f      // W; solo se dispara si hay un cuadrado a este alcance
-        /** Mejora por nivel (rotan: cadencia, daño, alcance, cadencia...). */
+        const val RANGE_START = 0.55f       // W; solo se dispara si hay un cuadrado a este alcance
+        const val BULLET_SPEED_START = 1.8f // W/s respecto a la pantalla
+        /** Cuánto mejora cada estadística al elegirla en una subida de nivel. */
         const val FIRE_RATE_MULT = 1.20f
         const val DAMAGE_ADD = 0.5f
         const val RANGE_ADD = 0.08f
+        const val BULLET_SPEED_MULT = 1.25f
         /** Experiencia necesaria para el siguiente nivel: BASE + (nivel - 1) * PER_LEVEL. */
         const val XP_BASE = 4
         const val XP_PER_LEVEL = 2
         const val LEVEL_MESSAGE_DURATION = 1.4f
+
+        /** Subida de nivel: el juego se detiene y se ofrecen UPGRADE_OPTIONS mejoras distintas.
+         *  Las cartas se apilan en vertical; posiciones como fracción de la ALTURA de pantalla. */
+        const val UPGRADE_OPTIONS = 3
+        const val CARD_TOP_Y = 0.15f
+        const val CARD_HEIGHT_Y = 0.125f
+        const val CARD_GAP_Y = 0.02f
+        fun cardTopY(index: Int): Float = CARD_TOP_Y + index * (CARD_HEIGHT_Y + CARD_GAP_Y)
 
         /** Rombos de experiencia: saltan al morir el cuadrado, caen y persiguen a la pelota. */
         const val GEM_POP_VY = 0.7f

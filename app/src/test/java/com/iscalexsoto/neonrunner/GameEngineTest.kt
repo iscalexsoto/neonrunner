@@ -47,12 +47,19 @@ class GameEngineTest {
     private fun hazards(e: GameEngine): List<Hazard> =
         e.obstacles.map { Hazard(it.left, it.right, it.height, false) } + e.squares.map { Hazard(it.left, it.right, it.size, true) }
 
+    private fun running(e: GameEngine) = e.phase == GameEngine.Phase.PLAYING || e.phase == GameEngine.Phase.LEVEL_UP
+
     /** Deja que el bot juegue hasta morir o hasta [maxSeconds]. Salta todo lo que se acerca. */
     private fun runBot(e: GameEngine, maxSeconds: Int) {
         val dt = 1f / 60f
         var holdUntil = -1f
         var steps = 0
-        while (e.phase == GameEngine.Phase.PLAYING && steps < 60 * maxSeconds) {
+        while (running(e) && steps < 60 * maxSeconds) {
+            if (e.phase == GameEngine.Phase.LEVEL_UP) {
+                // Elige la carta según el nivel, para variar las mejoras.
+                e.chooseUpgrade(e.level % e.levelUpOptions.size)
+                continue
+            }
             val ahead = hazards(e).filter { it.right - e.distance > GameConfig.Layout.BALL_X - 0.02f }
             val next = ahead.minByOrNull { it.left }
             if (next != null && !e.airborne) {
@@ -127,6 +134,9 @@ class GameEngineTest {
             assertTrue(events.shots > 0, "debería haber disparado")
             assertEquals(e.squaresDestroyed, events.pops)
             assertEquals(e.level - 1, events.levelUps)
+            assertEquals(e.distanceScore + e.combatScore, e.score)
+            assertEquals(e.xpCollected * GameConfig.Rogue.XP_POINTS, e.combatScore)
+            assertEquals(e.level - 1, e.upgradeCounts.sum())
             println("rogue seed=$seed score=${e.score} nivel=${e.level} destruidos=${e.squaresDestroyed} cadencia=${e.fireRate} daño=${e.damage} alcance=${e.range}")
         }
         assertTrue(minScore > 1500, "alguna partida terminó demasiado pronto: $minScore")
@@ -166,16 +176,17 @@ class GameEngineTest {
         // A partir de ~1000 puntos la pelota pasaba por debajo del rombo en el aire y este,
         // al caer detrás, nunca la alcanzaba. Ahora persigue a la pelota en ambos sentidos.
         var observed = 0
-        for (seed in 1..25) {
+        for (seed in 1..60) {
             val events = Counter()
             val e = newEngine(seed, events)
             select(e, GameMode.ROGUE)
-            runBotUntilScore(e, 1500)
+            runBotUntilScore(e, 1800)
             if (e.phase != GameEngine.Phase.PLAYING) continue
             // Dejar de saltar: la pelota se queda en el suelo disparando hasta destruir un cuadrado.
             val popsBefore = events.pops
             var n = 0
             while (e.phase == GameEngine.Phase.PLAYING && events.pops == popsBefore && n++ < 60 * 4) e.update(1f / 60f)
+            if (e.phase == GameEngine.Phase.LEVEL_UP) continue
             if (events.pops == popsBefore) continue
             val xpBefore = totalXp(e)
             val speedAtKill = e.speed
@@ -183,23 +194,72 @@ class GameEngineTest {
             // por debajo mientras está en el aire.
             var collected = false
             var t = 0f
-            while (e.phase == GameEngine.Phase.PLAYING && t < 1.6f) {
+            while (running(e) && t < 1.6f) {
                 e.update(1f / 60f)
                 t += 1f / 60f
                 if (totalXp(e) > xpBefore) { collected = true; break }
             }
             println("seed=$seed velocidad=$speedAtKill rombo recogido=$collected en ${"%.2f".format(t)} s")
-            assertTrue(speedAtKill > 0.9f)
+            assertTrue(speedAtKill > 0.8f, "la prueba debe ocurrir a velocidad alta: $speedAtKill")
             assertTrue(collected, "el rombo no alcanzó a la pelota a velocidad $speedAtKill (seed $seed)")
             observed++
-            if (observed >= 6) break
+            if (observed >= 5) break
         }
-        assertTrue(observed >= 6, "pocas observaciones: $observed")
+        assertTrue(observed >= 5, "pocas observaciones: $observed")
     }
 
     private fun runBotUntilScore(e: GameEngine, target: Int) {
         var guard = 0
-        while (e.phase == GameEngine.Phase.PLAYING && e.score < target && guard++ < 200) runBot(e, maxSeconds = 2)
+        while (running(e) && e.score < target && guard++ < 200) runBot(e, maxSeconds = 2)
+    }
+
+    @Test
+    fun subirDeNivelDetieneElJuegoYAplicaLaMejoraElegida() {
+        val events = Counter()
+        val e = newEngine(9, events)
+        select(e, GameMode.ROGUE)
+        var guard = 0
+        while (e.phase == GameEngine.Phase.PLAYING && guard++ < 60 * 120) {
+            // Bot mínimo: salta todo con salto alto para llegar a la primera subida de nivel.
+            val next = hazards(e).filter { it.right - e.distance > GameConfig.Layout.BALL_X }.minByOrNull { it.left }
+            if (next != null && !e.airborne && next.left - e.distance - GameConfig.Layout.BALL_X < e.speed * 0.26f) e.onPress()
+            if (e.airborne && e.ballVy < 0.3f) e.onRelease()
+            e.update(1f / 60f)
+        }
+        assertEquals(GameEngine.Phase.LEVEL_UP, e.phase, "debería haber llegado a una subida de nivel")
+        assertEquals(GameConfig.Rogue.UPGRADE_OPTIONS, e.levelUpOptions.size)
+        assertEquals(e.levelUpOptions.size, e.levelUpOptions.distinct().size, "las opciones no se repiten")
+
+        // Congelado: ni la distancia ni los toques fuera de las cartas cambian nada.
+        val distance = e.distance
+        repeat(30) { e.update(1f / 60f) }
+        e.onPress(yFrac = 0.99f); e.onRelease()
+        assertEquals(distance, e.distance)
+        assertEquals(GameEngine.Phase.LEVEL_UP, e.phase)
+
+        // Tocar la segunda carta aplica exactamente esa mejora.
+        val chosen = e.levelUpOptions[1]
+        val fireRate = e.fireRate; val damage = e.damage; val range = e.range; val bulletSpeed = e.bulletSpeed
+        val y = GameConfig.Rogue.cardTopY(1) + GameConfig.Rogue.CARD_HEIGHT_Y / 2f
+        e.onPress(yFrac = y); e.onRelease()
+        assertEquals(2, e.level)
+        assertEquals(1, events.levelUps)
+        assertEquals(1, e.upgradeCounts[chosen.ordinal])
+        when (chosen) {
+            Upgrade.FIRE_RATE -> assertTrue(e.fireRate > fireRate && e.damage == damage)
+            Upgrade.DAMAGE -> assertTrue(e.damage > damage && e.fireRate == fireRate)
+            Upgrade.RANGE -> assertTrue(e.range > range && e.bulletSpeed == bulletSpeed)
+            Upgrade.BULLET_SPEED -> assertTrue(e.bulletSpeed > bulletSpeed && e.range == range)
+        }
+        assertTrue(e.phase == GameEngine.Phase.PLAYING || e.phase == GameEngine.Phase.LEVEL_UP)
+        assertTrue(e.levelMessage.startsWith(chosen.title))
+
+        // La velocidad en Rogue sube con el nivel: un paso más y ya incluye el bono del nivel 2.
+        if (e.phase == GameEngine.Phase.PLAYING) {
+            e.update(1f / 60f)
+            val expected = GameConfig.Speed.START + e.distanceScore * GameConfig.Rogue.SPEED_PER_POINT + GameConfig.Rogue.SPEED_PER_LEVEL
+            assertTrue(abs(e.speed - expected) < 1e-4f, "velocidad ${e.speed} esperada $expected")
+        }
     }
 
     @Test

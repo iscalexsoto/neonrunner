@@ -12,8 +12,8 @@ android {
         applicationId = "com.iscalexsoto.neonrunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.1"
+        versionCode = 5
+        versionName = "1.2.0"
     }
 
     // Personal project, never shipped to a store: the signing key lives in the repo so every
