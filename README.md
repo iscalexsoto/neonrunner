@@ -18,7 +18,10 @@ Al abrir el juego eliges uno de dos modos tocando su panel:
   rombo de experiencia que cae y persigue a la pelota por el suelo hasta tocarla (si tardas demasiado
   en bajar, desaparece). Al llenar la barra el juego se detiene y eliges **una de tres mejoras**:
   cadencia, daño, alcance o bala rápida. Los cuadrados que no logres destruir a tiempo hay que
-  saltarlos (los blindados piden salto alto), y su vida crece cada 1000 puntos.
+  saltarlos (los blindados piden salto alto). Cada 1000 puntos los enemigos suben un escalón de
+  vida: cambian de color hacia el naranja/rojo y ganan un contorno interior, así se distinguen
+  de lejos. También hay un **rombo volador**: se pasa por debajo sin saltar, y para derribarlo hay
+  que disparar desde el aire (las balas salen a la altura de la pelota), saltando con tiempo.
   En este modo la velocidad sube con la distancia (menos que en Runner) y también con cada nivel, y la
   puntuación es distancia + 15 puntos por cada punto de experiencia recogido (en una partida típica,
   unos 60 % distancia y 40 % combate).

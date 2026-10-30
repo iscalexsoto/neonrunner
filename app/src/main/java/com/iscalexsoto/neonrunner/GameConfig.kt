@@ -163,22 +163,40 @@ object GameConfig {
 
     /** Modo Rogue-lite: cuadrados con vida, disparo automático y subida de nivel. */
     object Rogue {
-        /** Probabilidad de que un grupo de obstáculos sea un cuadrado en vez de triángulos. */
-        const val SQUARE_CHANCE = 0.55f
+        /** Tope de velocidad en Rogue (más bajo que en Runner: a más velocidad, menos tiempo de disparo). */
+        const val MAX_SPEED = 1.15f
+        /** Probabilidad de que un grupo de obstáculos sea un cuadrado (el resto, tras el volador, son triángulos). */
+        const val SQUARE_CHANCE = 0.50f
         /** Cuadrado normal: lado (W), vida y experiencia que suelta. */
         const val SMALL_SIZE = 0.09f
         const val SMALL_HP = 2f
         const val SMALL_XP = 1
         /** Cuadrado blindado. */
         const val BIG_SIZE = 0.15f
-        const val BIG_HP = 6f
+        const val BIG_HP = 5f
         const val BIG_XP = 3
         /** Probabilidad de blindado (del total de cuadrados) y velocidad mínima para que aparezca. */
         const val BIG_CHANCE = 0.30f
         const val BIG_MIN_SPEED = 0.60f
-        /** La vida de los cuadrados sube un escalón cada 1000 puntos: +35 % por escalón. */
-        const val HP_GROWTH_PER_1000 = 0.35f
+        /** La vida de los enemigos sube un escalón ("tier") cada 1000 puntos: +25 % por escalón.
+         *  Cada escalón cambia el color del enemigo y le añade un contorno interior. */
+        const val HP_GROWTH_PER_1000 = 0.25f
+        /** Escalón a partir del cual el color ya no cambia más (el contorno sí se sigue sumando). */
+        const val TIER_COLOR_MAX = 3
         const val HITBOX_SQUARE = 0.88f
+
+        /** Enemigo volador: rombo que flota a media altura. Se pasa por debajo sin saltar;
+         *  para derribarlo hay que disparar desde el aire (las balas salen a la altura de la pelota). */
+        const val FLYER_CHANCE = 0.18f
+        const val FLYER_MIN_SPEED = 0.70f
+        const val FLYER_SIZE = 0.08f
+        const val FLYER_HP = 2f
+        const val FLYER_XP = 2
+        /** Altura del borde inferior sobre el suelo (W). La pelota en el suelo llega a 0.09;
+         *  en el punto más alto de un salto corto las balas salen a ~0.15 y ya lo alcanzan. */
+        const val FLYER_BOTTOM = 0.145f
+        const val FLYER_BOB_AMPLITUDE = 0.008f
+        const val FLYER_BOB_SPEED = 3.0f
 
         /**
          * Velocidad en Rogue: la distancia pesa menos que en Runner y cada nivel suma.
@@ -198,12 +216,16 @@ object GameConfig {
         /** Estadísticas iniciales. */
         const val FIRE_RATE_START = 2.5f    // disparos por segundo
         const val DAMAGE_START = 1.0f
-        const val RANGE_START = 0.55f       // W; solo se dispara si hay un cuadrado a este alcance
+        const val RANGE_START = 0.55f       // W; solo se dispara si hay un enemigo a este alcance
+        /** Alcance extra proporcional a la velocidad (segundos de anticipación): compensa que a más
+         *  velocidad los enemigos pasan antes. El alcance total nunca supera RANGE_ON_SCREEN. */
+        const val RANGE_LEAD_SECONDS = 0.30f
+        const val RANGE_ON_SCREEN = 0.80f
         const val BULLET_SPEED_START = 1.8f // W/s respecto a la pantalla
         /** Cuánto mejora cada estadística al elegirla en una subida de nivel. */
-        const val FIRE_RATE_MULT = 1.20f
-        const val DAMAGE_ADD = 0.5f
-        const val RANGE_ADD = 0.08f
+        const val FIRE_RATE_MULT = 1.25f
+        const val DAMAGE_ADD = 1.0f
+        const val RANGE_ADD = 0.10f
         const val BULLET_SPEED_MULT = 1.25f
         /** Experiencia necesaria para el siguiente nivel: BASE + (nivel - 1) * PER_LEVEL. */
         const val XP_BASE = 4

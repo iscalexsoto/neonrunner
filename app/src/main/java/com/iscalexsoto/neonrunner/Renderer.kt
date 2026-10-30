@@ -71,7 +71,7 @@ class Renderer {
                 drawFloor(palette, engine)
                 drawObstacles(palette, engine)
                 if (engine.mode == GameMode.ROGUE) {
-                    drawSquares(palette, engine)
+                    drawEnemies(palette, engine)
                     drawGems(palette, engine)
                     drawBullets(palette, engine)
                 }
@@ -271,27 +271,76 @@ class Renderer {
 
     // ------------------------------------------------------------------ rogue-lite
 
-    private fun DrawScope.drawSquares(palette: Palette, engine: GameEngine) {
-        for (s in engine.squares) {
-            val cxW = s.x - engine.distance
-            if (cxW + s.size < -0.1f || cxW - s.size > 1.1f) continue
-            val left = px(cxW - s.size / 2f)
-            val right = px(cxW + s.size / 2f)
-            val top = py(s.size)
-            val sizePx = right - left
-            // Relleno oscuro y "vida" como nivel de líquido que baja con cada impacto
-            drawRect(palette.squareFill, topLeft = Offset(left, top), size = Size(sizePx, sizePx))
-            val hpH = sizePx * s.hpFraction
-            drawRect(palette.square, topLeft = Offset(left, ground - hpH), size = Size(sizePx, hpH), alpha = 0.28f)
-            path.reset()
-            path.moveTo(left, ground)
-            path.lineTo(left, top)
-            path.lineTo(right, top)
-            path.lineTo(right, ground)
-            path.close()
-            drawPath(path, palette.shadow, style = Stroke(lineWidth * 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-            glowPath(path, palette.square, intensity = 1.1f)
+    /** Color de un enemigo según su escalón de vida: vira hacia squareStrong con cada 1000 puntos. */
+    private fun enemyColor(palette: Palette, e: GameEngine.Enemy): Color {
+        val base = if (e.flying) palette.flyer else palette.square
+        val k = (e.tier.toFloat() / Rogue.TIER_COLOR_MAX).coerceIn(0f, 1f)
+        return lerp(base, palette.squareStrong, k)
+    }
+
+    private fun DrawScope.drawEnemies(palette: Palette, engine: GameEngine) {
+        for (e in engine.enemies) {
+            val cxW = e.x - engine.distance
+            if (cxW + e.size < -0.1f || cxW - e.size > 1.1f) continue
+            if (e.flying) drawFlyer(palette, e, cxW) else drawSquare(palette, e, cxW)
         }
+    }
+
+    private fun DrawScope.drawSquare(palette: Palette, e: GameEngine.Enemy, cxW: Float) {
+        val color = enemyColor(palette, e)
+        val left = px(cxW - e.size / 2f)
+        val right = px(cxW + e.size / 2f)
+        val top = py(e.size)
+        val sizePx = right - left
+        // Relleno oscuro y "vida" como nivel de líquido que baja con cada impacto
+        drawRect(palette.squareFill, topLeft = Offset(left, top), size = Size(sizePx, sizePx))
+        val hpH = sizePx * e.hpFraction
+        drawRect(color, topLeft = Offset(left, ground - hpH), size = Size(sizePx, hpH), alpha = 0.28f)
+        path.reset()
+        path.moveTo(left, ground)
+        path.lineTo(left, top)
+        path.lineTo(right, top)
+        path.lineTo(right, ground)
+        path.close()
+        drawPath(path, palette.shadow, style = Stroke(lineWidth * 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        glowPath(path, color, intensity = 1.1f)
+        // Un contorno interior por cada escalón de vida: se ve de lejos que es más duro.
+        val inset = sizePx * 0.14f
+        for (t in 1..e.tier) {
+            val d = inset * t
+            if (d * 2f >= sizePx * 0.8f) break
+            drawRect(color, topLeft = Offset(left + d, top + d), size = Size(sizePx - 2f * d, sizePx - 2f * d), alpha = 0.8f, style = Stroke(lineWidth * 0.7f))
+        }
+    }
+
+    private fun DrawScope.drawFlyer(palette: Palette, e: GameEngine.Enemy, cxW: Float) {
+        val color = enemyColor(palette, e)
+        val cx = px(cxW)
+        val cy = py(e.bottom + e.size / 2f)
+        val half = e.size / 2f * w
+        fun diamond(p: Path, r: Float) {
+            p.reset()
+            p.moveTo(cx, cy - r)
+            p.lineTo(cx + r, cy)
+            p.lineTo(cx, cy + r)
+            p.lineTo(cx - r, cy)
+            p.close()
+        }
+        diamond(path, half)
+        drawPath(path, palette.flyerFill)
+        // Vida: rombo interior que se encoge con cada impacto
+        diamond(fillPath, half * 0.85f * e.hpFraction)
+        drawPath(fillPath, color, alpha = 0.3f)
+        drawPath(path, palette.shadow, style = Stroke(lineWidth * 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        glowPath(path, color, intensity = 1.1f)
+        for (t in 1..e.tier) {
+            val r = half * (1f - 0.2f * t)
+            if (r <= half * 0.25f) break
+            diamond(fillPath, r)
+            drawPath(fillPath, color, alpha = 0.8f, style = Stroke(lineWidth * 0.7f, join = StrokeJoin.Round))
+        }
+        // Sombra en el suelo bajo el volador
+        drawOval(color, topLeft = Offset(cx - half * 0.8f, ground - half * 0.08f), size = Size(half * 1.6f, half * 0.16f), alpha = 0.18f)
     }
 
     private fun DrawScope.drawBullets(palette: Palette, engine: GameEngine) {
@@ -526,7 +575,7 @@ class Renderer {
         )
         drawModePanel(
             palette, top = split + gap / 2f, height = panelH, accent = palette.square, pulse = pulse,
-            title = "ROGUE-LITE", line1 = "Destruye cuadrados, sube de nivel.", line2 = "Disparas solo; tu trabajo es no chocar.",
+            title = "ROGUE-LITE", line1 = "Destruye enemigos, sube de nivel.", line2 = "Disparas solo; tu trabajo es no chocar.",
             hi = engine.highScoreFor(GameMode.ROGUE),
         )
     }
@@ -588,7 +637,7 @@ class Renderer {
                 title("GAME OVER", cy, palette.enemy)
                 var y = cy + w * 0.11f
                 if (engine.mode == GameMode.ROGUE) {
-                    subtitle("NIVEL ${engine.level} · ${engine.squaresDestroyed} CUADRADOS", y, 200)
+                    subtitle("NIVEL ${engine.level} · ${engine.enemiesDestroyed} ENEMIGOS", y, 200)
                     y += w * 0.06f
                     subtitle("DISTANCIA ${engine.distanceScore} + COMBATE ${engine.combatScore}", y, 170)
                     y += w * 0.07f

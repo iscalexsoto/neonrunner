@@ -34,9 +34,13 @@ data class Palette(
     val hudGlow: Color,
     /** Sombra oscura detrás de todos los textos y del contorno de los triángulos. */
     val shadow: Color,
-    /** Modo Rogue-lite: cuadrados (contorno y relleno), rombos de experiencia. */
+    /** Modo Rogue-lite: cuadrados (contorno y relleno), color al que viran los enemigos
+     *  fuertes, enemigo volador y rombos de experiencia. */
     val square: Color,
     val squareFill: Color,
+    val squareStrong: Color,
+    val flyer: Color,
+    val flyerFill: Color,
     val gem: Color,
 )
 
@@ -67,6 +71,9 @@ object Palettes {
         shadow = Color(0xD9000000),
         square = Color(0xFFD4FF3A),
         squareFill = Color(0xFF0E1A05),
+        squareStrong = Color(0xFFFF6A2A),
+        flyer = Color(0xFFFF9F43),
+        flyerFill = Color(0xFF1F0E05),
         gem = Color(0xFFE8FFB0),
     )
 
@@ -98,6 +105,9 @@ object Palettes {
         shadow = Color(0xE61A0530),
         square = Color(0xFFFFE94A),
         squareFill = Color(0xFF2E1A3C),
+        squareStrong = Color(0xFFFF3B3B),
+        flyer = Color(0xFFFF7A00),
+        flyerFill = Color(0xFF3A1430),
         gem = Color(0xFFFFF6C2),
     )
 
@@ -129,6 +139,9 @@ object Palettes {
             shadow = lerp(a.shadow, b.shadow, k),
             square = lerp(a.square, b.square, k),
             squareFill = lerp(a.squareFill, b.squareFill, k),
+            squareStrong = lerp(a.squareStrong, b.squareStrong, k),
+            flyer = lerp(a.flyer, b.flyer, k),
+            flyerFill = lerp(a.flyerFill, b.flyerFill, k),
             gem = lerp(a.gem, b.gem, k),
         )
     }

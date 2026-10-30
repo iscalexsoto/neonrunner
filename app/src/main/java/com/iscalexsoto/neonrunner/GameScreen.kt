@@ -43,7 +43,7 @@ fun GameScreen() {
                 override fun onDing() = sound.playDing()
                 override fun onHighScore(mode: GameMode, score: Int) = store.save(mode, score)
                 override fun onShoot() = sound.playShoot()
-                override fun onSquareDestroyed() = sound.playPop()
+                override fun onEnemyDestroyed() = sound.playPop()
                 override fun onLevelUp() = sound.playLevelUp()
             },
         )

@@ -22,7 +22,7 @@ interface GameEvents {
     fun onDing()
     fun onHighScore(mode: GameMode, score: Int)
     fun onShoot() {}
-    fun onSquareDestroyed() {}
+    fun onEnemyDestroyed() {}
     fun onLevelUp() {}
 }
 
@@ -57,12 +57,28 @@ class GameEngine(
         val right get() = x + base / 2f
     }
 
-    /** Cuadrado destructible (solo modo ROGUE). [x] es el centro, apoyado en el suelo. */
-    class Square(val x: Float, val size: Float, val maxHp: Float, val xp: Int) {
+    /**
+     * Enemigo destructible (solo modo ROGUE): cuadrado apoyado en el suelo o rombo volador.
+     * [x] es el centro horizontal (mundo); [bottom] la altura de su borde inferior sobre el suelo.
+     * [tier] es el escalón de vida (cada 1000 puntos): cambia el color y añade contornos.
+     */
+    enum class EnemyKind { SMALL, BIG, FLYER }
+
+    class Enemy(
+        val x: Float, val size: Float, val maxHp: Float, val xp: Int,
+        val tier: Int, val kind: EnemyKind, private val baseBottom: Float, private val bobPhase: Float,
+    ) {
+        val flying get() = kind == EnemyKind.FLYER
         var hp = maxHp
+        var bottom = baseBottom
+        val top get() = bottom + size
         val left get() = x - size / 2f
         val right get() = x + size / 2f
         val hpFraction get() = (hp / maxHp).coerceIn(0f, 1f)
+
+        fun updateBob(time: Float) {
+            if (flying) bottom = baseBottom + Rogue.FLYER_BOB_AMPLITUDE * kotlin.math.sin(time * Rogue.FLYER_BOB_SPEED + bobPhase)
+        }
     }
 
     /** Disparo. Coordenadas de PANTALLA (W): vuela hacia la derecha a altura fija. */
@@ -112,7 +128,7 @@ class GameEngine(
     val obstacles = ArrayList<Obstacle>()
 
     // ---- estado Rogue-lite
-    val squares = ArrayList<Square>()
+    val enemies = ArrayList<Enemy>()
     val bullets = ArrayList<Bullet>()
     val gems = ArrayList<Gem>()
     var level = 1; private set
@@ -122,7 +138,9 @@ class GameEngine(
     var damage = Rogue.DAMAGE_START; private set
     var range = Rogue.RANGE_START; private set
     var bulletSpeed = Rogue.BULLET_SPEED_START; private set
-    var squaresDestroyed = 0; private set
+    var enemiesDestroyed = 0; private set
+    /** Enemigos destruidos por tipo (índice = EnemyKind.ordinal). */
+    val destroyedByKind = IntArray(EnemyKind.entries.size)
     var xpCollected = 0; private set
     /** Veces que se ha elegido cada mejora. */
     val upgradeCounts = IntArray(Upgrade.entries.size)
@@ -216,7 +234,7 @@ class GameEngine(
 
     private fun step(dt: Float) {
         speed = if (mode == GameMode.ROGUE) {
-            min(Speed.MAX, Speed.START + distanceScore * Rogue.SPEED_PER_POINT + (level - 1) * Rogue.SPEED_PER_LEVEL)
+            min(Rogue.MAX_SPEED, Speed.START + distanceScore * Rogue.SPEED_PER_POINT + (level - 1) * Rogue.SPEED_PER_LEVEL)
         } else {
             min(Speed.MAX, Speed.START + score * Speed.PER_POINT)
         }
@@ -246,6 +264,7 @@ class GameEngine(
         cullObstacles()
 
         if (mode == GameMode.ROGUE) {
+            for (e in enemies) e.updateBob(time)
             updateFire(dt)
             updateBullets(dt)
             updateGems(dt)
@@ -318,7 +337,7 @@ class GameEngine(
 
     private fun resetWorld() {
         obstacles.clear()
-        squares.clear()
+        enemies.clear()
         bullets.clear()
         gems.clear()
         distance = 0f
@@ -343,7 +362,8 @@ class GameEngine(
         damage = Rogue.DAMAGE_START
         range = Rogue.RANGE_START
         bulletSpeed = Rogue.BULLET_SPEED_START
-        squaresDestroyed = 0
+        enemiesDestroyed = 0
+        destroyedByKind.fill(0)
         xpCollected = 0
         upgradeCounts.fill(0)
         levelUpOptions = emptyList()
@@ -356,10 +376,11 @@ class GameEngine(
 
     private fun spawnObstacles() {
         while (nextSpawnX < distance + Obstacles.SPAWN_X) {
-            val groupEnd = if (mode == GameMode.ROGUE && rng.nextFloat() < Rogue.SQUARE_CHANCE) {
-                spawnSquare(nextSpawnX)
-            } else {
-                spawnTriangleGroup(nextSpawnX)
+            val roll = if (mode == GameMode.ROGUE) rng.nextFloat() else 1f
+            val groupEnd = when {
+                roll < Rogue.FLYER_CHANCE && speed >= Rogue.FLYER_MIN_SPEED -> spawnFlyer(nextSpawnX)
+                roll < Rogue.FLYER_CHANCE + Rogue.SQUARE_CHANCE -> spawnSquare(nextSpawnX)
+                else -> spawnTriangleGroup(nextSpawnX)
             }
             // El hueco crece con la velocidad para que siempre se pueda saltar.
             val minGap = speed * (Obstacles.MAX_AIR_TIME * Obstacles.GAP_SAFETY + Obstacles.GAP_REACTION)
@@ -389,15 +410,30 @@ class GameEngine(
         return groupEnd
     }
 
+    /** Escalón de vida actual: sube cada 1000 puntos. */
+    private val hpTier: Int get() = score / 1000
+
     /** Crea un cuadrado (normal o blindado) a partir de [start] y devuelve dónde termina. */
     private fun spawnSquare(start: Float): Float {
         val big = speed >= Rogue.BIG_MIN_SPEED && rng.nextFloat() < Rogue.BIG_CHANCE
         val size = if (big) Rogue.BIG_SIZE else Rogue.SMALL_SIZE
         val baseHp = if (big) Rogue.BIG_HP else Rogue.SMALL_HP
-        val growth = 1f + Rogue.HP_GROWTH_PER_1000 * (score / 1000)   // escalonado cada 1000 puntos
         val xpValue = if (big) Rogue.BIG_XP else Rogue.SMALL_XP
-        squares.add(Square(start + size / 2f, size, baseHp * growth, xpValue))
+        enemies.add(makeEnemy(start + size / 2f, size, baseHp, xpValue, if (big) EnemyKind.BIG else EnemyKind.SMALL, bottom = 0f))
         return start + size
+    }
+
+    /** Crea un volador a partir de [start] y devuelve dónde termina. */
+    private fun spawnFlyer(start: Float): Float {
+        val size = Rogue.FLYER_SIZE
+        enemies.add(makeEnemy(start + size / 2f, size, Rogue.FLYER_HP, Rogue.FLYER_XP, EnemyKind.FLYER, bottom = Rogue.FLYER_BOTTOM))
+        return start + size
+    }
+
+    private fun makeEnemy(x: Float, size: Float, baseHp: Float, xp: Int, kind: EnemyKind, bottom: Float): Enemy {
+        val tier = hpTier
+        val hp = baseHp * (1f + Rogue.HP_GROWTH_PER_1000 * tier)
+        return Enemy(x, size, hp, xp, tier, kind, bottom, rng.nextFloat() * 6.2832f)
     }
 
     private fun pickGroupSize(): Int {
@@ -420,7 +456,7 @@ class GameEngine(
     private fun cullObstacles() {
         val limit = distance - 0.3f
         obstacles.removeAll { it.right < limit }
-        squares.removeAll { it.right < limit }
+        enemies.removeAll { it.right < limit }
     }
 
     // ---------------------------------------------------------------- rogue: disparos
@@ -428,14 +464,20 @@ class GameEngine(
     private fun updateFire(dt: Float) {
         fireCooldown -= dt
         if (fireCooldown > 0f) return
-        // Solo se dispara si hay un cuadrado al alcance, delante de la pelota.
+        // Solo se dispara si hay un enemigo al alcance, delante de la pelota.
         val ballFront = distance + Layout.BALL_X
-        val hasTarget = squares.any { it.right > ballFront && it.left - ballFront < range }
+        val reach = effectiveRange
+        val hasTarget = enemies.any { it.right > ballFront && it.left - ballFront < reach }
         if (!hasTarget) return
         fireCooldown = 1f / fireRate
         bullets.add(Bullet(Layout.BALL_X + Layout.BALL_RADIUS, ballY + Layout.BALL_RADIUS))
         events.onShoot()
     }
+
+    /** Alcance real: el de la estadística más una anticipación proporcional a la velocidad,
+     *  sin pasar de lo que cabe en pantalla. */
+    val effectiveRange: Float
+        get() = min(range + speed * Rogue.RANGE_LEAD_SECONDS, Rogue.RANGE_ON_SCREEN)
 
     private fun updateBullets(dt: Float) {
         val step = bulletSpeed * dt
@@ -444,27 +486,28 @@ class GameEngine(
             val b = it.next()
             b.x += step
             b.traveled += step
-            if (b.traveled > range + 0.1f || b.x > 1.2f) {
+            if (b.traveled > effectiveRange + 0.1f || b.x > 1.2f) {
                 it.remove()
                 continue
             }
-            val hit = squares.firstOrNull { s ->
+            val hit = enemies.firstOrNull { s ->
                 val left = s.left - distance
                 val right = s.right - distance
                 b.x + Rogue.BULLET_RADIUS >= left && b.x - Rogue.BULLET_RADIUS <= right &&
-                    b.y - Rogue.BULLET_RADIUS <= s.size && b.y + Rogue.BULLET_RADIUS >= 0f
+                    b.y - Rogue.BULLET_RADIUS <= s.top && b.y + Rogue.BULLET_RADIUS >= s.bottom
             } ?: continue
             it.remove()
             hit.hp -= damage
-            if (hit.hp <= 0.001f) destroySquare(hit)
+            if (hit.hp <= 0.001f) destroyEnemy(hit)
         }
     }
 
-    private fun destroySquare(s: Square) {
-        squares.remove(s)
-        squaresDestroyed++
-        gems.add(Gem(s.x, s.size / 2f, Rogue.GEM_POP_VY, s.xp))
-        events.onSquareDestroyed()
+    private fun destroyEnemy(e: Enemy) {
+        enemies.remove(e)
+        enemiesDestroyed++
+        destroyedByKind[e.kind.ordinal]++
+        gems.add(Gem(e.x, e.bottom + e.size / 2f, Rogue.GEM_POP_VY, e.xp))
+        events.onEnemyDestroyed()
     }
 
     private fun updateGems(dt: Float) {
@@ -572,11 +615,12 @@ class GameEngine(
             val h = o.height * Physics.HITBOX_TRIANGLE
             if (circleHitsTriangle(cx, cy, r, tx - b / 2f, 0f, tx + b / 2f, 0f, tx, h)) return true
         }
-        for (s in squares) {
+        for (s in enemies) {
             val sx = s.x - distance
             if (abs(sx - cx) > s.size + Layout.BALL_RADIUS) continue
             val half = s.size * Rogue.HITBOX_SQUARE / 2f
-            if (circleHitsRect(cx, cy, r, sx - half, 0f, sx + half, s.size * Rogue.HITBOX_SQUARE)) return true
+            val midY = s.bottom + s.size / 2f
+            if (circleHitsRect(cx, cy, r, sx - half, midY - half, sx + half, midY + half)) return true
         }
         return false
     }

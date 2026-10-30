@@ -26,7 +26,7 @@ class GameEngineTest {
         override fun onCrash() { crashes++ }
         override fun onDing() { dings++ }
         override fun onShoot() { shots++ }
-        override fun onSquareDestroyed() { pops++ }
+        override fun onEnemyDestroyed() { pops++ }
         override fun onLevelUp() { levelUps++ }
         override fun onHighScore(mode: GameMode, score: Int) { savedHighScore = score; savedMode = mode }
     }
@@ -41,16 +41,21 @@ class GameEngineTest {
         assertEquals(mode, e.mode)
     }
 
-    /** Peligro genérico delante de la pelota (triángulo o cuadrado). */
+    /** Peligro en el suelo delante de la pelota (triángulo o cuadrado). Los voladores se pasan por debajo. */
     private class Hazard(val left: Float, val right: Float, val height: Float, val isSquare: Boolean)
 
     private fun hazards(e: GameEngine): List<Hazard> =
-        e.obstacles.map { Hazard(it.left, it.right, it.height, false) } + e.squares.map { Hazard(it.left, it.right, it.size, true) }
+        e.obstacles.map { Hazard(it.left, it.right, it.height, false) } +
+            e.enemies.filter { !it.flying }.map { Hazard(it.left, it.right, it.size, true) }
 
     private fun running(e: GameEngine) = e.phase == GameEngine.Phase.PLAYING || e.phase == GameEngine.Phase.LEVEL_UP
 
-    /** Deja que el bot juegue hasta morir o hasta [maxSeconds]. Salta todo lo que se acerca. */
-    private fun runBot(e: GameEngine, maxSeconds: Int) {
+    /**
+     * Deja que el bot juegue hasta morir o hasta [maxSeconds]. Salta todo lo que se acerca en el
+     * suelo. Con [attackFlyers], además salta alto cuando un volador está a la distancia justa para
+     * dispararle desde el aire y aterrizar antes de que llegue.
+     */
+    private fun runBot(e: GameEngine, maxSeconds: Int, attackFlyers: Boolean = false) {
         val dt = 1f / 60f
         var holdUntil = -1f
         var steps = 0
@@ -59,6 +64,19 @@ class GameEngineTest {
                 // Elige la carta según el nivel, para variar las mejoras.
                 e.chooseUpgrade(e.level % e.levelUpOptions.size)
                 continue
+            }
+            if (attackFlyers && !e.airborne) {
+                val minDist = 0.78f * e.speed + 0.14f
+                val ballFront = e.distance + GameConfig.Layout.BALL_X
+                val flyerAhead = e.enemies.any { it.flying && it.left - ballFront in minDist..e.effectiveRange }
+                val groundNear = hazards(e).any { it.left - ballFront < 1.0f && it.right > ballFront }
+                if (flyerAhead && !groundNear) {
+                    e.onPress()
+                    holdUntil = e.time + 0.3f
+                    e.update(dt)
+                    steps++
+                    continue
+                }
             }
             val ahead = hazards(e).filter { it.right - e.distance > GameConfig.Layout.BALL_X - 0.02f }
             val next = ahead.minByOrNull { it.left }
@@ -114,7 +132,7 @@ class GameEngineTest {
             select(e, GameMode.RUNNER)
             runBot(e, maxSeconds = 600)
             assertTrue(events.jumps > 0)
-            assertTrue(e.squares.isEmpty() && events.shots == 0, "en Runner no hay cuadrados ni disparos")
+            assertTrue(e.enemies.isEmpty() && events.shots == 0, "en Runner no hay enemigos ni disparos")
             minScore = minOf(minScore, e.score)
         }
         assertTrue(minScore > 2000, "alguna partida terminó demasiado pronto: $minScore")
@@ -132,12 +150,12 @@ class GameEngineTest {
             minScore = minOf(minScore, e.score)
             minLevel = minOf(minLevel, e.level)
             assertTrue(events.shots > 0, "debería haber disparado")
-            assertEquals(e.squaresDestroyed, events.pops)
+            assertEquals(e.enemiesDestroyed, events.pops)
             assertEquals(e.level - 1, events.levelUps)
             assertEquals(e.distanceScore + e.combatScore, e.score)
             assertEquals(e.xpCollected * GameConfig.Rogue.XP_POINTS, e.combatScore)
             assertEquals(e.level - 1, e.upgradeCounts.sum())
-            println("rogue seed=$seed score=${e.score} nivel=${e.level} destruidos=${e.squaresDestroyed} cadencia=${e.fireRate} daño=${e.damage} alcance=${e.range}")
+            println("rogue seed=$seed score=${e.score} nivel=${e.level} destruidos=${e.enemiesDestroyed} cadencia=${e.fireRate} daño=${e.damage} alcance=${e.range}")
         }
         assertTrue(minScore > 1500, "alguna partida terminó demasiado pronto: $minScore")
         assertTrue(minLevel >= 2, "el bot debería subir de nivel aunque salte casi todo: $minLevel")
@@ -154,9 +172,9 @@ class GameEngineTest {
             var n = 0
             while (e.phase == GameEngine.Phase.PLAYING && n++ < 60 * 8) {
                 e.update(1f / 60f)
-                if (e.squaresDestroyed > 0) break
+                if (e.enemiesDestroyed > 0) break
             }
-            if (e.squaresDestroyed > 0) {
+            if (e.enemiesDestroyed > 0) {
                 found = true
                 assertTrue(events.shots > 0)
                 // Al menos un rombo apareció, y si llegó al suelo se desliza hacia la pelota.
@@ -182,24 +200,33 @@ class GameEngineTest {
             select(e, GameMode.ROGUE)
             runBotUntilScore(e, 1800)
             if (e.phase != GameEngine.Phase.PLAYING) continue
-            // Dejar de saltar: la pelota se queda en el suelo disparando hasta destruir un cuadrado.
+            // Dejar de saltar: la pelota se queda en el suelo disparando hasta destruir un enemigo.
             val popsBefore = events.pops
+            // Se toma ANTES del pop: si el enemigo muere pegado a la pelota, el rombo se recoge en el mismo frame.
+            val xpBefore = e.xpCollected
             var n = 0
             while (e.phase == GameEngine.Phase.PLAYING && events.pops == popsBefore && n++ < 60 * 4) e.update(1f / 60f)
-            if (e.phase == GameEngine.Phase.LEVEL_UP) continue
             if (events.pops == popsBefore) continue
-            val xpBefore = totalXp(e)
             val speedAtKill = e.speed
             // El rombo debe llegar a la pelota en poco más de un segundo, aunque la pelota pase
             // por debajo mientras está en el aire.
-            var collected = false
+            var collected = e.xpCollected > xpBefore
             var t = 0f
-            while (running(e) && t < 1.6f) {
+            val trace = StringBuilder()
+            while (!collected && running(e) && t < 1.6f) {
                 e.update(1f / 60f)
                 t += 1f / 60f
-                if (totalXp(e) > xpBefore) { collected = true; break }
+                if ((t * 60f).toInt() % 6 == 0) {
+                    trace.append("  t=${"%.2f".format(t)} ballY=${"%.3f".format(e.ballY)} air=${e.airborne} gems=")
+                    trace.append(e.gems.joinToString { "(dx=${"%.3f".format(it.x - e.distance - GameConfig.Layout.BALL_X)} y=${"%.3f".format(it.y)})" })
+                    trace.append(" xp=${e.xp} lvl=${e.level}\n")
+                }
+                if (e.xpCollected > xpBefore) { collected = true; break }
             }
-            println("seed=$seed velocidad=$speedAtKill rombo recogido=$collected en ${"%.2f".format(t)} s")
+            if (!collected) println(trace)
+            println("seed=$seed velocidad=$speedAtKill rombo recogido=$collected en ${"%.2f".format(t)} s fase=${e.phase}")
+            // Si la pelota chocó antes de que llegara el rombo, la observación no vale.
+            if (!collected && e.phase == GameEngine.Phase.DEAD) continue
             assertTrue(speedAtKill > 0.8f, "la prueba debe ocurrir a velocidad alta: $speedAtKill")
             assertTrue(collected, "el rombo no alcanzó a la pelota a velocidad $speedAtKill (seed $seed)")
             observed++
@@ -263,6 +290,45 @@ class GameEngineTest {
     }
 
     @Test
+    fun elVoladorSePasaPorDebajoYSeDerribaDesdeElAire() {
+        // 1) Pasar por debajo sin saltar nunca mata.
+        val ballTop = GameConfig.Layout.BALL_RADIUS * 2f
+        assertTrue(GameConfig.Rogue.FLYER_BOTTOM - GameConfig.Rogue.FLYER_BOB_AMPLITUDE > ballTop + 0.03f, "el volador debe dejar pasar a la pelota por debajo")
+        // 2) El bot (que no salta ante voladores) sobrevive, y si salta alto cuando uno está a media
+        //    distancia, las balas disparadas desde el aire lo derriban alguna vez.
+        var flyersKilled = 0
+        var deaths = 0
+        for (seed in 1..10) {
+            val events = Counter()
+            val e = newEngine(seed, events)
+            select(e, GameMode.ROGUE)
+            runBot(e, maxSeconds = 300, attackFlyers = true)
+            if (e.phase == GameEngine.Phase.DEAD) deaths++
+            val killed = e.destroyedByKind[GameEngine.EnemyKind.FLYER.ordinal]
+            flyersKilled += killed
+            println("volador seed=$seed derribados=$killed destruidos(total)=${e.enemiesDestroyed} score=${e.score} fase=${e.phase}")
+        }
+        assertTrue(flyersKilled > 0, "ningún volador derribado en 10 partidas")
+        assertTrue(deaths <= 2, "el bot murió demasiado con voladores: $deaths")
+    }
+
+    @Test
+    fun elCuadradoGrandeSePuedeDestruirConMejoras() {
+        // Partida larga con el bot (elige cartas): en algún momento debe caer algún blindado.
+        var bigKilled = 0
+        for (seed in 1..10) {
+            val events = Counter()
+            val e = newEngine(seed, events)
+            select(e, GameMode.ROGUE)
+            runBot(e, maxSeconds = 400)
+            val big = e.destroyedByKind[GameEngine.EnemyKind.BIG.ordinal]
+            bigKilled += big
+            println("grande seed=$seed nivel=${e.level} destruidos=${e.enemiesDestroyed} grandes=$big score=${e.score}")
+        }
+        assertTrue(bigKilled > 0, "ningún cuadrado grande cayó en 10 partidas")
+    }
+
+    @Test
     fun morirReiniciarYRecordPorModo() {
         val events = Counter()
         val e = newEngine(3, events)
@@ -296,7 +362,9 @@ class GameEngineTest {
         val e = newEngine(4)
         select(e, GameMode.ROGUE)
         var n = 0
-        while (e.phase != GameEngine.Phase.DEAD && n++ < 20_000) e.update(1f / 60f)
+        while (e.phase != GameEngine.Phase.DEAD && n++ < 20_000) {
+            if (e.phase == GameEngine.Phase.LEVEL_UP) e.chooseUpgrade(0) else e.update(1f / 60f)
+        }
         assertEquals(GameEngine.Phase.DEAD, e.phase)
         repeat(60) { e.update(1f / 60f) }
         e.onPress()
