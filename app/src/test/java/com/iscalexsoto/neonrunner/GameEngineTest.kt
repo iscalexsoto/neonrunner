@@ -157,6 +157,51 @@ class GameEngineTest {
         assertTrue(found, "con 60 semillas alguna debería destruir un cuadrado sin saltar")
     }
 
+    /** Experiencia total ganada en la partida (niveles completados + barra actual). */
+    private fun totalXp(e: GameEngine): Int =
+        (1 until e.level).sumOf { GameConfig.Rogue.XP_BASE + (it - 1) * GameConfig.Rogue.XP_PER_LEVEL } + e.xp
+
+    @Test
+    fun losRombosAlcanzanALaPelotaTambienAVelocidadAlta() {
+        // A partir de ~1000 puntos la pelota pasaba por debajo del rombo en el aire y este,
+        // al caer detrás, nunca la alcanzaba. Ahora persigue a la pelota en ambos sentidos.
+        var observed = 0
+        for (seed in 1..25) {
+            val events = Counter()
+            val e = newEngine(seed, events)
+            select(e, GameMode.ROGUE)
+            runBotUntilScore(e, 1500)
+            if (e.phase != GameEngine.Phase.PLAYING) continue
+            // Dejar de saltar: la pelota se queda en el suelo disparando hasta destruir un cuadrado.
+            val popsBefore = events.pops
+            var n = 0
+            while (e.phase == GameEngine.Phase.PLAYING && events.pops == popsBefore && n++ < 60 * 4) e.update(1f / 60f)
+            if (events.pops == popsBefore) continue
+            val xpBefore = totalXp(e)
+            val speedAtKill = e.speed
+            // El rombo debe llegar a la pelota en poco más de un segundo, aunque la pelota pase
+            // por debajo mientras está en el aire.
+            var collected = false
+            var t = 0f
+            while (e.phase == GameEngine.Phase.PLAYING && t < 1.6f) {
+                e.update(1f / 60f)
+                t += 1f / 60f
+                if (totalXp(e) > xpBefore) { collected = true; break }
+            }
+            println("seed=$seed velocidad=$speedAtKill rombo recogido=$collected en ${"%.2f".format(t)} s")
+            assertTrue(speedAtKill > 0.9f)
+            assertTrue(collected, "el rombo no alcanzó a la pelota a velocidad $speedAtKill (seed $seed)")
+            observed++
+            if (observed >= 6) break
+        }
+        assertTrue(observed >= 6, "pocas observaciones: $observed")
+    }
+
+    private fun runBotUntilScore(e: GameEngine, target: Int) {
+        var guard = 0
+        while (e.phase == GameEngine.Phase.PLAYING && e.score < target && guard++ < 200) runBot(e, maxSeconds = 2)
+    }
+
     @Test
     fun morirReiniciarYRecordPorModo() {
         val events = Counter()

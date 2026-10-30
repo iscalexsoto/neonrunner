@@ -15,8 +15,8 @@ Al abrir el juego eliges uno de dos modos tocando su panel:
 - **Runner**: el juego original. Solo triángulos; salta y sobrevive.
 - **Rogue-lite**: además de triángulos hay **cuadrados con vida**. La pelota dispara sola hacia
   adelante (también en el aire) cuando hay un cuadrado al alcance. Un cuadrado destruido suelta un
-  rombo de experiencia que cae y se desliza hacia ti por el suelo; si estás en el aire cuando pasa,
-  lo pierdes. Al llenar la barra subes de nivel y mejora una estadística por turno: cadencia, daño o
+  rombo de experiencia que cae y persigue a la pelota por el suelo hasta tocarla (si tardas demasiado
+  en bajar, desaparece). Al llenar la barra subes de nivel y mejora una estadística por turno: cadencia, daño o
   alcance. Los cuadrados que no logres destruir a tiempo hay que saltarlos (los blindados piden
   salto alto), y su vida crece cada 1000 puntos.
 

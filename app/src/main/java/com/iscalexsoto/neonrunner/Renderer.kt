@@ -315,6 +315,9 @@ class Renderer {
             val bob = if (g.landed) r * 0.25f * sin(engine.time * 8f + g.x * 40f) else 0f
             val cx = px(xW)
             val cy = py(g.y) - bob
+            // Parpadea en su último segundo de vida
+            val remaining = Rogue.GEM_LIFETIME - g.age
+            if (remaining < 1f && (remaining * 10f).toInt() % 2 == 0) continue
             drawCircle(palette.gem, radius = r * 2.4f, center = Offset(cx, cy), alpha = 0.18f)
             path.reset()
             path.moveTo(cx, cy - r * 1.3f)

@@ -196,10 +196,14 @@ object GameConfig {
         const val XP_PER_LEVEL = 2
         const val LEVEL_MESSAGE_DURATION = 1.4f
 
-        /** Rombos de experiencia: saltan al morir el cuadrado, caen y se deslizan hacia la pelota. */
+        /** Rombos de experiencia: saltan al morir el cuadrado, caen y persiguen a la pelota. */
         const val GEM_POP_VY = 0.7f
         const val GEM_GRAVITY = 2.6f
-        const val GEM_SLIDE_SPEED = 0.9f
+        /** Velocidad horizontal con la que el rombo se acerca a la pelota (W/s, en pantalla,
+         *  independiente de la velocidad del juego; funciona por delante y por detrás). */
+        const val GEM_HOMING_SPEED = 1.2f
+        /** Si en estos segundos no toca a la pelota (p. ej. salta sin parar), desaparece. */
+        const val GEM_LIFETIME = 6f
         const val GEM_RADIUS = 0.014f
     }
 

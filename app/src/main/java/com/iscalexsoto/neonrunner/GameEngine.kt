@@ -65,6 +65,8 @@ class GameEngine(
     /** Rombo de experiencia. Coordenadas de mundo. */
     class Gem(var x: Float, var y: Float, var vy: Float, val value: Int) {
         var landed = false
+        /** Segundos de vida; pasado GEM_LIFETIME sin ser recogido, desaparece. */
+        var age = 0f
     }
 
     var phase = Phase.SELECT; private set
@@ -434,6 +436,7 @@ class GameEngine(
         val it = gems.iterator()
         while (it.hasNext()) {
             val g = it.next()
+            g.age += dt
             if (!g.landed) {
                 g.vy -= Rogue.GEM_GRAVITY * dt
                 g.y += g.vy * dt
@@ -442,17 +445,19 @@ class GameEngine(
                     g.vy = 0f
                     g.landed = true
                 }
-            } else if (g.x > ballCx) {
-                // En el suelo se desliza hacia la pelota; si la pelota está en el aire, se pierde.
-                g.x -= Rogue.GEM_SLIDE_SPEED * dt
             }
+            // Persigue a la pelota en horizontal (en coordenadas de pantalla, así la velocidad del
+            // juego no importa): si quedó atrás porque la pelota pasó por debajo, la alcanza.
+            val dx0 = g.x - ballCx
+            val stepX = Rogue.GEM_HOMING_SPEED * dt
+            g.x = if (abs(dx0) <= stepX) ballCx else g.x - stepX * if (dx0 > 0f) 1f else -1f
             val dx = g.x - ballCx
             val dy = g.y - ballCy
             val reach = Layout.BALL_RADIUS + Rogue.GEM_RADIUS * 2f
             if (dx * dx + dy * dy <= reach * reach) {
                 it.remove()
                 gainXp(g.value)
-            } else if (g.x - distance < -0.1f) {
+            } else if (g.age > Rogue.GEM_LIFETIME) {
                 it.remove()
             }
         }
